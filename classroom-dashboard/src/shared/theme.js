@@ -11,7 +11,7 @@ function readInitialDarkMode() {
   } catch {
     // storage blocked (private mode, etc.): fall through to the OS preference
   }
-  return !window.matchMedia?.("(prefers-color-scheme: light)").matches;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
 }
 
 // [isDarkMode, setIsDarkMode]: toggles class="dark" on <html> and persists the choice.

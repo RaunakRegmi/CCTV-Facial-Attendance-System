@@ -1,16 +1,7 @@
-# React + Vite
+# Attendly web application
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The single React frontend for the attendance monolith. The live teacher dashboard is in `src/features/attendance/TeacherDashboard.jsx`, administration is in `src/features/admin`, and authentication is in `src/features/auth`. Shared API/theme modules and the responsive design system are under `src/shared` and `src/index.css`.
 
-Currently, two official plugins are available:
+Run `npm ci`, then `npm run dev`; the API must run on localhost:8000. Production builds are served by FastAPI from this directory's `dist`. See the [root README](../README.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Checks: `npm run build`, `npm run lint`, `npm test`. Browser smoke checks: `python tests/ui_smoke.py http://127.0.0.1:5173` (requires Python Playwright with Chromium).
