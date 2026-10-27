@@ -1,6 +1,10 @@
 """
 Dual-State Engine: CCTV face recognition + per-minute Firestore sync.
 
+Enrollment: students whose `enrolled_classes` contains --class-id are loaded from
+Firestore `students`, decoding each `photo_base64` in memory (no files written).
+The local --photos directory is only used if Firestore yields no usable faces.
+
 Pipeline per frame:
   1. YOLOv8 face detector (PyTorch, Apple Silicon MPS) finds face boxes.
   2. Each face is aligned to 112x112 using 5-point landmarks.
@@ -18,6 +22,8 @@ Usage:
 """
 
 import argparse
+import base64
+import binascii
 import math
 import re
 import shutil
@@ -37,6 +43,7 @@ from mediapipe.tasks.python import vision as mp_vision
 import onnxruntime as ort
 import torch
 from firebase_admin import credentials, firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 from insightface.app import FaceAnalysis
 from insightface.utils.face_align import norm_crop
 from ultralytics import YOLO
@@ -258,38 +265,98 @@ def name_from_filename(path):
     return re.sub(r"[_\-]+", " ", stem).strip()
 
 
-def enroll_students(app, photos_dir):
-    photos = sorted(Path(photos_dir).glob("*.jpg")) + sorted(Path(photos_dir).glob("*.jpeg"))
-    if not photos:
-        raise FileNotFoundError(f"No .jpg files found in {photos_dir}")
+def decode_base64_image(data):
+    """'data:image/jpeg;base64,...' (or bare Base64) -> BGR NumPy image, decoded in memory. None if invalid."""
+    if not isinstance(data, str) or not data:
+        return None
+    if data.startswith("data:"):
+        data = data.split(",", 1)[-1]
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    return cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
 
-    per_student = {}
+
+def firestore_photos(db, class_id):
+    """Yields (label, image, source) for students whose enrolled_classes contains class_id."""
+    query = db.collection("students").where(
+        filter=FieldFilter("enrolled_classes", "array_contains", class_id))
+    docs = [d.to_dict() | {"_id": d.id} for d in query.stream()]
+    print(f"[INFO] Firestore: {len(docs)} student(s) enrolled in {class_id}")
+
+    # full_name is the dashboard label; disambiguate students who share one
+    name_counts = {}
+    for d in docs:
+        name_counts[d.get("full_name")] = name_counts.get(d.get("full_name"), 0) + 1
+
+    for d in docs:
+        sid = d.get("student_id") or d["_id"]
+        name = (d.get("full_name") or "").strip() or sid
+        label = f"{name} ({sid})" if name_counts[d.get("full_name")] > 1 else name
+        img = decode_base64_image(d.get("photo_base64"))
+        if img is None:
+            print(f"[WARN] students/{d['_id']}: missing or undecodable photo_base64, skipping")
+            continue
+        yield label, img, f"students/{d['_id']}"
+
+
+def local_photos(photos_dir):
+    """Yields (label, image, source) for .jpg files in photos_dir, labelled by filename."""
+    photos = sorted(Path(photos_dir).glob("*.jpg")) + sorted(Path(photos_dir).glob("*.jpeg"))
     for path in photos:
         img = cv2.imread(str(path))
         if img is None:
             print(f"[WARN] Could not read {path.name}, skipping")
             continue
+        yield name_from_filename(path), img, path.name
+
+
+def build_templates(app, samples):
+    """Embed each (label, image, source); several images per label are averaged into one template.
+    Returns (names, embeddings) or ([], None) if no usable face was found."""
+    per_student = {}
+    for label, img, source in samples:
         faces = app.get(img)
         if not faces:
-            print(f"[WARN] No face found in {path.name}, skipping")
+            print(f"[WARN] No face found in {source}, skipping")
             continue
         if len(faces) > 1:
-            print(f"[WARN] {len(faces)} faces in {path.name}, using the largest")
+            print(f"[WARN] {len(faces)} faces in {source}, using the largest")
         face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-        per_student.setdefault(name_from_filename(path), []).append(face.normed_embedding)
+        per_student.setdefault(label, []).append(face.normed_embedding)
 
     if not per_student:
-        raise RuntimeError("Enrollment failed: no usable faces in any photo")
+        return [], None
 
     names = list(per_student)
-    # Several photos of one student are averaged into a single template
     embeddings = np.stack([np.mean(per_student[n], axis=0) for n in names])
     embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
-
     for n in names:
         print(f"[ENROLL] {n} ({len(per_student[n])} photo(s))")
-    print(f"[INFO] Enrolled {len(names)} students")
     return names, embeddings.astype(np.float32)
+
+
+def enroll_students(app, db, class_id, photos_dir):
+    """Firestore Base64 photos first; local photos_dir only if Firestore yields no usable faces."""
+    try:
+        names, embeddings = build_templates(app, firestore_photos(db, class_id))
+    except Exception as e:
+        print(f"[WARN] Firestore enrollment failed ({e}), trying local photos")
+        names, embeddings = [], None
+    if names:
+        print(f"[INFO] Enrolled {len(names)} student(s) from Firestore")
+        return names, embeddings
+
+    print(f"[INFO] No usable Firestore photos for {class_id}, falling back to {photos_dir}")
+    names, embeddings = build_templates(app, local_photos(photos_dir))
+    if not names:
+        raise RuntimeError(
+            f"Enrollment failed: no students with usable photos in Firestore for class {class_id} "
+            f"and none in {photos_dir}. Enroll students in the dashboard's Admin Panel."
+        )
+    print(f"[INFO] Enrolled {len(names)} student(s) from local photos")
+    return names, embeddings
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +505,7 @@ def run(args):
     device = get_torch_device()
     detector = load_face_detector(args.face_model, device)
     app = load_insightface(get_onnx_providers())
-    names, enrolled = enroll_students(app, args.photos)
+    names, enrolled = enroll_students(app, db, args.class_id, args.photos)
 
     source = int(args.source) if args.source.isdigit() else args.source
     cap = cv2.VideoCapture(source)
@@ -514,7 +581,8 @@ def parse_args():
     p.add_argument("--source", default=str(SCRIPT_DIR / "test_video.mp4"),
                    help="Video file path, RTSP URL, or webcam index (e.g. 0)")
     p.add_argument("--photos", default=str(SCRIPT_DIR / "student_photos"),
-                   help="Directory of enrollment .jpg files named after students")
+                   help="Fallback directory of .jpg files named after students, used only if "
+                        "Firestore has no usable photos for --class-id")
     p.add_argument("--face-model", default=str(SCRIPT_DIR / "yolov8n-face.pt"),
                    help="YOLOv8 face detection weights")
     p.add_argument("--class-id", type=str, default="AI-101", help="Firestore Class ID")
