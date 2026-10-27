@@ -1,13 +1,3 @@
-// // Import the functions you need from the SDKs you need
-// import { initializeApp } from "firebase/app";
-// // TODO: Add SDKs for Firebase products that you want to use
-// // https://firebase.google.com/docs/web/setup#available-libraries
-
-// // Your web app's Firebase configuration
-
-// // Initialize Firebase
-// const app = initializeApp(firebaseConfig);
-
 // src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
@@ -21,6 +11,6 @@ const firebaseConfig = {
   appId: "1:349232554396:web:0f8159e9046e135c32e859",
 };
 
-// Initialize Firebase and Firestore
+// Initialize Firebase and Firestore (no Cloud Storage: photos live in Firestore as Base64)
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);

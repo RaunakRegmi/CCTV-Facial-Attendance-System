@@ -1,3 +1,11 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Native controls (scrollbars, <select> menus, date pickers) follow the theme */
+:root {
+  color-scheme: light;
+}
+:root.dark {
+  color-scheme: dark;
+}
