@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import {
   LineChart,
   Line,
@@ -9,9 +10,10 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+import { db } from "./firebase";
 
 // ---------------------------------------------------------------------------
-// Mock data — replace with API calls once the backend is connected.
+// Config
 // ---------------------------------------------------------------------------
 
 const CLASSES = [
@@ -35,90 +37,82 @@ const CLASSES = [
   },
 ];
 
-const STUDENT_NAMES = [
-  "Aisha Rahman",
-  "Benjamin Tan",
-  "Chloe Lim",
-  "Daniel Wong",
-  "Emily Chen",
-  "Farhan Ismail",
-  "Grace Ng",
-  "Hafiz Abdullah",
-  "Isabelle Lee",
-  "Jason Ong",
-  "Kavya Menon",
-  "Lucas Teo",
-  "Mei Ling Goh",
-  "Nurul Huda",
-  "Oliver Yap",
-  "Priya Nair",
-  "Qi Hao Lau",
-  "Rachel Koh",
-  "Syafiq Hamzah",
-  "Tiffany Chua",
-  "Umar Farouk",
-  "Vanessa Low",
-  "Wei Jie Chong",
-  "Xin Yi Tan",
-  "Yusuf Ahmad",
-  "Zara Hussein",
-  "Arjun Pillai",
-  "Bella Foo",
-  "Cheng Hui Sim",
-  "Dinesh Kumar",
-];
+// Students whose first "Present" log is later than class start + this are marked late.
+const LATE_GRACE_MINUTES = 5;
 
-// Deterministic pseudo-random so mock data is stable across re-renders.
-function seeded(seed) {
-  let s = seed;
-  return () => {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  };
+// ---------------------------------------------------------------------------
+// Firestore log -> dashboard data
+// ---------------------------------------------------------------------------
+
+function formatTime(date, withSeconds = false) {
+  if (!date) return null;
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  if (!withSeconds) return `${hh}:${mm}`;
+  return `${hh}:${mm}:${String(date.getSeconds()).padStart(2, "0")}`;
 }
 
-function buildRoster(classIndex) {
-  const rand = seeded(classIndex * 97 + 13);
-  const absentTarget = 6 - classIndex * 2; // CS-101: 6 absent, CS-205: 4, AI-310: 2
-  const absentIdx = new Set();
-  while (absentIdx.size < absentTarget) {
-    absentIdx.add(Math.floor(rand() * STUDENT_NAMES.length));
-  }
-  return STUDENT_NAMES.map((name, i) => {
-    const present = !absentIdx.has(i);
-    // Most arrive 08:52–09:03; a few stragglers up to 09:12.
-    const late = rand() < 0.15;
-    const offset = late
-      ? 4 + Math.floor(rand() * 9)
-      : -8 + Math.floor(rand() * 11);
-    const total = 9 * 60 + offset;
-    const hh = String(Math.floor(total / 60)).padStart(2, "0");
-    const mm = String(total % 60).padStart(2, "0");
-    return {
-      id: `${CLASSES[classIndex].id}-${String(i + 1).padStart(3, "0")}`,
-      name,
-      status: present ? "Present" : "Absent",
-      arrival: present ? `${hh}:${mm}` : null,
-      late: present && late,
+// "09:00 – 09:45" -> minutes since midnight of the start time (540)
+function classStartMinutes(classInfo) {
+  const [h, m] = classInfo.time.split("–")[0].trim().split(":").map(Number);
+  return h * 60 + m;
+}
+
+// One roster row per student: latest log decides status, first Present log is arrival.
+// Expects logs sorted by timestamp ascending.
+function buildRoster(logs, startMinutes) {
+  const byStudent = new Map();
+  for (const log of logs) {
+    const entry = byStudent.get(log.student_name) ?? {
+      id: log.student_name,
+      name: log.student_name,
+      firstPresent: null,
+      latest: null,
     };
-  });
+    if (log.status === "Present" && !entry.firstPresent && log.date) {
+      entry.firstPresent = log.date;
+    }
+    entry.latest = log;
+    byStudent.set(log.student_name, entry);
+  }
+
+  return [...byStudent.values()]
+    .map((e) => {
+      const present = e.latest.status === "Present";
+      const arrivalMinutes = e.firstPresent
+        ? e.firstPresent.getHours() * 60 + e.firstPresent.getMinutes()
+        : null;
+      return {
+        id: e.id,
+        name: e.name,
+        status: present ? "Present" : "Absent",
+        arrival: present ? formatTime(e.firstPresent) : null,
+        lastSeen: formatTime(e.latest.date),
+        late:
+          present &&
+          arrivalMinutes !== null &&
+          arrivalMinutes > startMinutes + LATE_GRACE_MINUTES,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function buildAttention(classIndex) {
-  const rand = seeded(classIndex * 31 + 7);
-  const points = [];
-  // Typical lecture curve: warm-up, peak, mid-session dip, slight recovery.
-  for (let m = 0; m <= 45; m += 3) {
-    const base =
-      70 +
-      18 * Math.sin((m / 45) * Math.PI * 0.9) -
-      (m > 25 && m < 36 ? 12 : 0) +
-      classIndex * 2;
-    const noise = (rand() - 0.5) * 10;
-    const score = Math.max(0, Math.min(100, Math.round(base + noise)));
-    points.push({ time: `09:${String(m).padStart(2, "0")}`, attention: score });
+// Class-wide attention per minute: mean attention_score of Present logs in that minute.
+function buildAttention(logs) {
+  const buckets = new Map();
+  for (const log of logs) {
+    if (log.status !== "Present" || !log.date) continue;
+    if (typeof log.attention_score !== "number") continue;
+    const key = formatTime(log.date);
+    const b = buckets.get(key) ?? { sum: 0, count: 0 };
+    b.sum += log.attention_score;
+    b.count += 1;
+    buckets.set(key, b);
   }
-  return points;
+  return [...buckets.entries()].map(([time, b]) => ({
+    time,
+    attention: Math.round(b.sum / b.count),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -276,18 +270,63 @@ function DownloadIcon() {
 export default function TeacherDashboard() {
   const [selectedClass, setSelectedClass] = useState("CS-101");
   const [filter, setFilter] = useState("All");
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Real-time listener on attendance_logs, oldest first.
+  useEffect(() => {
+    const q = query(
+      collection(db, "attendance_logs"),
+      orderBy("timestamp", "asc"),
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setLogs(
+          snapshot.docs.map((doc) => {
+            // "estimate" fills pending serverTimestamp() writes instead of returning null
+            const data = doc.data({ serverTimestamps: "estimate" });
+            return {
+              id: doc.id,
+              ...data,
+              date: data.timestamp?.toDate?.() ?? null,
+            };
+          }),
+        );
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
+        console.error("attendance_logs listener failed:", err);
+        setError(err);
+        setLoading(false);
+      },
+    );
+    return unsubscribe;
+  }, []);
 
   const classIndex = CLASSES.findIndex((c) => c.id === selectedClass);
   const classInfo = CLASSES[classIndex];
 
-  const roster = useMemo(() => buildRoster(classIndex), [classIndex]);
-  const attention = useMemo(() => buildAttention(classIndex), [classIndex]);
+  const roster = useMemo(
+    () => buildRoster(logs, classStartMinutes(classInfo)),
+    [logs, classInfo],
+  );
+  const attention = useMemo(() => buildAttention(logs), [logs]);
 
   const presentCount = roster.filter((s) => s.status === "Present").length;
   const lateCount = roster.filter((s) => s.late).length;
-  const avgAttention = Math.round(
-    attention.reduce((sum, p) => sum + p.attention, 0) / attention.length,
+  const presentLogs = logs.filter(
+    (l) => l.status === "Present" && typeof l.attention_score === "number",
   );
+  const avgAttention = presentLogs.length
+    ? Math.round(
+        presentLogs.reduce((sum, l) => sum + l.attention_score, 0) /
+          presentLogs.length,
+      )
+    : 0;
+  const lastSync = logs.length ? formatTime(logs[logs.length - 1].date, true) : null;
 
   const visibleRoster =
     filter === "All" ? roster : roster.filter((s) => s.status === filter);
@@ -298,11 +337,12 @@ export default function TeacherDashboard() {
       console.log(`Export ${format} requested for ${selectedClass}`);
       return;
     }
+    const escape = (v) => `"${String(v).replaceAll('"', '""')}"`;
     const rows = [
-      ["Student ID", "Student Name", "Status", "Arrival Time"],
-      ...roster.map((s) => [s.id, s.name, s.status, s.arrival ?? ""]),
+      ["Student Name", "Status", "Arrival Time", "Last Seen"],
+      ...roster.map((s) => [s.name, s.status, s.arrival ?? "", s.lastSeen ?? ""]),
     ];
-    const csv = rows.map((r) => r.join(",")).join("\n");
+    const csv = rows.map((r) => r.map(escape).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const a = document.createElement("a");
     a.href = url;
@@ -364,7 +404,9 @@ export default function TeacherDashboard() {
               <div className="mt-3 h-1.5 w-full rounded-full bg-slate-100">
                 <div
                   className="h-1.5 rounded-full bg-indigo-600"
-                  style={{ width: `${(presentCount / roster.length) * 100}%` }}
+                  style={{
+                    width: `${roster.length ? (presentCount / roster.length) * 100 : 0}%`,
+                  }}
                 />
               </div>
             </StatCard>
@@ -384,25 +426,47 @@ export default function TeacherDashboard() {
 
             <StatCard
               label="System Status"
-              footnote="Camera feed · 30 fps · last sync 2s ago"
+              footnote={
+                error
+                  ? error.code ?? "Listener error"
+                  : `Firestore live · last log ${lastSync ?? "—"}`
+              }
             >
-              <p className="flex items-center gap-2 text-lg font-semibold text-emerald-700">
-                <svg
-                  className="h-5 w-5"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                Pose Analytics Active
-              </p>
+              {error ? (
+                <p className="flex items-center gap-2 text-lg font-semibold text-red-700">
+                  <svg
+                    className="h-5 w-5"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  Connection Lost
+                </p>
+              ) : (
+                <p className="flex items-center gap-2 text-lg font-semibold text-emerald-700">
+                  <svg
+                    className="h-5 w-5"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  Pose Analytics Active
+                </p>
+              )}
               <p className="mt-2 text-sm text-slate-500">
-                Face recognition: online
+                {loading ? "Connecting…" : `${logs.length} logs received`}
               </p>
             </StatCard>
           </section>
@@ -413,7 +477,7 @@ export default function TeacherDashboard() {
               <div>
                 <h2 className="text-base font-semibold">Attention Score</h2>
                 <p className="text-sm text-slate-500">
-                  Class-wide engagement, sampled every 3 minutes
+                  Class-wide engagement, averaged per minute
                 </p>
               </div>
               <p className="text-xs text-slate-400">
@@ -421,45 +485,53 @@ export default function TeacherDashboard() {
               </p>
             </div>
             <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={attention}
-                  margin={{ top: 8, right: 16, bottom: 0, left: -8 }}
-                >
-                  <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                  <XAxis
-                    dataKey="time"
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                    tickLine={false}
-                    axisLine={{ stroke: "#e2e8f0" }}
-                    interval={2}
-                  />
-                  <YAxis
-                    domain={[0, 100]}
-                    ticks={[0, 25, 50, 75, 100]}
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <ReferenceLine
-                    y={avgAttention}
-                    stroke="#94a3b8"
-                    strokeDasharray="4 4"
-                  />
-                  <Tooltip
-                    content={<AttentionTooltip />}
-                    cursor={{ stroke: "#cbd5e1", strokeWidth: 1 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="attention"
-                    stroke="#4f46e5"
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              {attention.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                  {loading ? "Loading attention data…" : "No attention data yet"}
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={attention}
+                    margin={{ top: 8, right: 16, bottom: 0, left: -8 }}
+                  >
+                    <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fontSize: 12, fill: "#64748b" }}
+                      tickLine={false}
+                      axisLine={{ stroke: "#e2e8f0" }}
+                      interval="preserveStartEnd"
+                      minTickGap={24}
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      ticks={[0, 25, 50, 75, 100]}
+                      tick={{ fontSize: 12, fill: "#64748b" }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <ReferenceLine
+                      y={avgAttention}
+                      stroke="#94a3b8"
+                      strokeDasharray="4 4"
+                    />
+                    <Tooltip
+                      content={<AttentionTooltip />}
+                      cursor={{ stroke: "#cbd5e1", strokeWidth: 1 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="attention"
+                      stroke="#4f46e5"
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }}
+                      isAnimationActive={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </section>
 
@@ -493,11 +565,23 @@ export default function TeacherDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
+                  {visibleRoster.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={3}
+                        className="px-5 py-10 text-center text-slate-400"
+                      >
+                        {loading ? "Loading roster…" : "No students to show"}
+                      </td>
+                    </tr>
+                  )}
                   {visibleRoster.map((s) => (
                     <tr key={s.id} className="hover:bg-slate-50">
                       <td className="whitespace-nowrap px-5 py-3">
                         <p className="font-medium text-slate-900">{s.name}</p>
-                        <p className="text-xs text-slate-400">{s.id}</p>
+                        <p className="text-xs text-slate-400">
+                          Last seen {s.lastSeen ?? "—"}
+                        </p>
                       </td>
                       <td className="whitespace-nowrap px-5 py-3">
                         <StatusBadge status={s.status} late={s.late} />
