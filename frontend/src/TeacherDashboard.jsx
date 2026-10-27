@@ -89,10 +89,10 @@ function Sidebar({ selectedClass, onSelect, onExport }) {
     <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-slate-200 bg-white md:flex">
       <div className="flex items-center gap-2 border-b border-slate-200 px-6 py-5">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-          DS
+          A
         </div>
         <div>
-          <p className="text-sm font-semibold text-slate-900">Dual-State</p>
+          <p className="text-sm font-semibold text-slate-900">Attendly</p>
           <p className="text-xs text-slate-500">Attendance Analytics</p>
         </div>
       </div>

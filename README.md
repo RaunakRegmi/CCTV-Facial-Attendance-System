@@ -1,4 +1,4 @@
-# Dual-State Vision Analytics: Privacy-First Classroom Intelligence Platform
+# Attendly: Privacy-First Classroom Intelligence Platform
 
 An end-to-end, edge-accelerated computer vision and real-time dashboard platform designed to automate classroom attendance and quantify real-time engagement while prioritizing biometric privacy.
 
@@ -6,9 +6,12 @@ An end-to-end, edge-accelerated computer vision and real-time dashboard platform
 
 ## Key Features & Innovations
 
-- **Dual-State Architecture for Privacy**
-  - **Phase 1 — Identity Verification (First 5 Minutes):** Hardware-accelerated facial identification using facial embeddings.
-  - **Phase 2 — Anonymous Attention Tracking (Remainder of Session):** Transitions to geometric head-pose estimation and spatial orientation tracking. Facial identification is disabled after the initial window, and no new facial identities are logged during this phase.
+- **Automatic Present / Late / Absent Attendance**
+  - **Whole-session recognition:** Hardware-accelerated facial identification runs for the entire session, so late arrivals are still recorded.
+  - **Present:** first recognized within the first 15 minutes after the engine starts.
+  - **Late:** first recognized after the first 15 minutes (adjustable with `--late-after`).
+  - **Absent:** enrolled in the class but never recognized during the session.
+  - **Attention tracking:** geometric head-pose estimation scores each recognized student's attention every minute.
 
 - **Zero-Storage Cloud Sync:** Encodes resized biometric reference photos as Base64 directly in Google Firestore, avoiding a separate cloud object-storage dependency.
 
@@ -91,11 +94,11 @@ An end-to-end, edge-accelerated computer vision and real-time dashboard platform
 
 ### 1. Clone the Repository
 
-Replace `YOUR_USERNAME` with your GitHub username.
+Clone the repository:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/dual-state-classroom-analytics.git
-cd dual-state-classroom-analytics
+git clone https://github.com/RaunakRegmi/CCTV-Facial-Attendance-System.git
+cd CCTV-Facial-Attendance-System
 ```
 
 ### 2. Set Up the Frontend
@@ -174,12 +177,12 @@ Never commit private service-account JSON files, API secrets, or other credentia
 5. Add a student, provide the required details, upload a reference face photo, and assign the student to the class.
 6. Save the student record.
 
-### Step 2: Start the Dual-State AI Engine
+### Step 2: Start the Attendly AI Engine
 
 From the backend directory, activate the virtual environment and run:
 
 ```bash
-python3 dual_state_engine.py --source 0 --class-id CS-101 --threshold 0.45
+python3 attendly_engine.py --source 0 --class-id CS-101 --threshold 0.45
 ```
 
 This example uses webcam device `0` and targets the `CS-101` class.
@@ -192,6 +195,7 @@ This example uses webcam device `0` and targets the `CS-101` class.
 | `--class-id`   | Target class document ID in Firestore  | `CS-101`             |
 | `--threshold`  | Facial similarity threshold            | `0.45`               |
 | `--face-model` | Path to face-detection model weights   | `yolov8n-face.pt`    |
+| `--late-after` | Minutes before arrivals count as Late  | `15` (default)       |
 
 Use the exact argument names and supported values implemented by your engine. The examples above assume the described CLI options are available.
 
@@ -199,11 +203,9 @@ Use the exact argument names and supported values implemented by your engine. Th
 
 ## Privacy & Security
 
-### 1. Dual-State Identity Boundary
+### 1. Local Face Recognition
 
-Facial identification is intended to run locally during the initial five-minute window. After that window, the system transitions to geometric attention tracking without continuing facial identity matching.
-
-The privacy guarantee depends on the implementation: ensure face embeddings, temporary frames, and identity associations are cleared or restricted appropriately when the state changes.
+Facial identification runs for the whole session, entirely on the local machine. Video frames and face embeddings are never uploaded or saved: only each recognized student's name, attendance status (Present or Late) and a per-minute attention score are written to Firestore.
 
 ### 2. Client-Side Image Resizing
 

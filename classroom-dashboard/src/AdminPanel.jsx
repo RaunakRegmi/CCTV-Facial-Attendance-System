@@ -1,20 +1,39 @@
 import { useEffect, useState } from "react";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-} from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "./firebase";
 
 // ---------------------------------------------------------------------------
 // Config & helpers
 // ---------------------------------------------------------------------------
+
+// Reads come straight from Firestore; writes go through the FastAPI backend
+// (backend/api.py) because the Firestore rules deny all client writes.
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+// fetch() wrapper: throws with FastAPI's error detail on a non-2xx response.
+async function api(method, path, body) {
+  let res;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error(`Can't reach the API at ${API_URL}. Is it running?`);
+  }
+  if (res.ok) return res.status === 204 ? null : res.json();
+
+  const data = await res.json().catch(() => null);
+  const detail = data?.detail;
+  // 422 validation errors come back as a list of { loc, msg }
+  const message = Array.isArray(detail)
+    ? detail.map((d) => `${d.loc.at(-1)}: ${d.msg}`).join("; ")
+    : detail || `HTTP ${res.status}`;
+  const err = new Error(message);
+  err.status = res.status;
+  throw err;
+}
 
 const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD_MB = 15; // raw file limit; it's shrunk before saving
@@ -86,9 +105,13 @@ function formatKb(chars) {
 function Card({ title, description, children }) {
   return (
     <section className="rounded-xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-900 dark:text-white">{title}</h2>
+      <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+        {title}
+      </h2>
       {description && (
-        <p className="mt-1 text-sm text-slate-500 dark:text-gray-400">{description}</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-gray-400">
+          {description}
+        </p>
       )}
       <div className="mt-5">{children}</div>
     </section>
@@ -98,9 +121,15 @@ function Card({ title, description, children }) {
 function Field({ label, hint, children }) {
   return (
     <label className="block">
-      <span className="text-sm font-medium text-slate-700 dark:text-gray-300">{label}</span>
+      <span className="text-sm font-medium text-slate-700 dark:text-gray-300">
+        {label}
+      </span>
       <div className="mt-1.5">{children}</div>
-      {hint && <span className="mt-1 block text-xs text-slate-400 dark:text-gray-500">{hint}</span>}
+      {hint && (
+        <span className="mt-1 block text-xs text-slate-400 dark:text-gray-500">
+          {hint}
+        </span>
+      )}
     </label>
   );
 }
@@ -202,17 +231,11 @@ function AddClassForm({ classes }) {
     setBusy(true);
     setStatus(null);
     try {
-      const classRef = doc(db, "classes", classId);
-      // Don't clobber an existing class (and the engine's heartbeat fields on it)
-      if ((await getDoc(classRef)).exists()) {
-        setStatus({ type: "error", text: `Class ${classId} already exists.` });
-        return;
-      }
-      await setDoc(classRef, {
+      // The API refuses an existing ID (409), so the engine's fields are never clobbered
+      await api("POST", "/api/classes", {
         class_id: classId,
         class_name: className,
         room: room || null,
-        created_at: serverTimestamp(),
       });
       setStatus({
         type: "success",
@@ -223,7 +246,10 @@ function AddClassForm({ classes }) {
       console.error("Add class failed:", err);
       setStatus({
         type: "error",
-        text: `Couldn't create class: ${err.code ?? err.message}`,
+        text:
+          err.status === 409
+            ? err.message
+            : `Couldn't create class: ${err.message}`,
       });
     } finally {
       setBusy(false);
@@ -282,8 +308,12 @@ function AddClassForm({ classes }) {
                 className="flex items-baseline justify-between gap-3 py-2 text-sm"
               >
                 <span className="truncate">
-                  <span className="font-medium text-slate-900 dark:text-white">{c.id}</span>
-                  <span className="ml-2 text-slate-500 dark:text-gray-400">{c.name}</span>
+                  <span className="font-medium text-slate-900 dark:text-white">
+                    {c.id}
+                  </span>
+                  <span className="ml-2 text-slate-500 dark:text-gray-400">
+                    {c.name}
+                  </span>
                 </span>
                 {c.room && (
                   <span className="shrink-0 text-xs text-slate-400 dark:text-gray-500">
@@ -309,7 +339,7 @@ function AddStudentForm({ classes }) {
   const [form, setForm] = useState(EMPTY_STUDENT);
   const [photo, setPhoto] = useState(null); // { dataUrl, width, height }
   const [fileInputKey, setFileInputKey] = useState(0); // remount to clear the input
-  const [phase, setPhase] = useState(null); // null | "processing" | "checking" | "saving"
+  const [phase, setPhase] = useState(null); // null | "processing" | "saving"
   const [status, setStatus] = useState(null);
   const busy = phase !== null;
 
@@ -366,24 +396,14 @@ function AddStudentForm({ classes }) {
     if (error) return setStatus({ type: "error", text: error });
 
     setStatus(null);
-    const studentRef = doc(db, "students", studentId);
     try {
-      setPhase("checking");
-      if ((await getDoc(studentRef)).exists()) {
-        setStatus({
-          type: "error",
-          text: `Student ${studentId} is already enrolled.`,
-        });
-        return;
-      }
-
+      // The API checks student_id is unused (409) before saving
       setPhase("saving");
-      await setDoc(studentRef, {
+      await api("POST", "/api/students", {
         full_name: fullName,
         student_id: studentId,
         photo_base64: photo.dataUrl,
         enrolled_classes: form.enrolled,
-        created_at: serverTimestamp(),
       });
 
       setStatus({
@@ -397,7 +417,10 @@ function AddStudentForm({ classes }) {
       console.error("Add student failed:", err);
       setStatus({
         type: "error",
-        text: `Couldn't enroll student: ${err.code ?? err.message}`,
+        text:
+          err.status === 409
+            ? err.message
+            : `Couldn't enroll student: ${err.message}`,
       });
     } finally {
       setPhase(null);
@@ -406,7 +429,6 @@ function AddStudentForm({ classes }) {
 
   const busyLabel = {
     processing: "Processing photo…",
-    checking: "Checking student ID…",
     saving: "Saving student…",
   }[phase];
 
@@ -487,7 +509,9 @@ function AddStudentForm({ classes }) {
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="text-xs text-slate-300 dark:text-gray-600">No photo</span>
+                <span className="text-xs text-slate-300 dark:text-gray-600">
+                  No photo
+                </span>
               )}
             </div>
             <input
@@ -554,13 +578,13 @@ function StudentList() {
     setDeleteStatus(null);
     setDeleting((prev) => new Set(prev).add(student.id));
     try {
-      // The onSnapshot listener above removes the row as soon as this applies locally
-      await deleteDoc(doc(db, "students", student.id));
+      // The onSnapshot listener above removes the row once the server delete lands
+      await api("DELETE", `/api/students/${encodeURIComponent(student.id)}`);
     } catch (err) {
       console.error("Delete student failed:", err);
       setDeleteStatus({
         type: "error",
-        text: `Couldn't delete ${name}: ${err.code ?? err.message}`,
+        text: `Couldn't delete ${name}: ${err.message}`,
       });
     } finally {
       setDeleting((prev) => {
@@ -581,7 +605,9 @@ function StudentList() {
         </div>
       )}
       {feed.status === "loading" && (
-        <p className="text-sm text-slate-400 dark:text-gray-500">Loading students…</p>
+        <p className="text-sm text-slate-400 dark:text-gray-500">
+          Loading students…
+        </p>
       )}
       {feed.status === "error" && (
         <p className="text-sm text-red-700 dark:text-red-300">
@@ -589,7 +615,9 @@ function StudentList() {
         </p>
       )}
       {feed.status === "ready" && feed.students.length === 0 && (
-        <p className="text-sm text-slate-400 dark:text-gray-500">No students enrolled yet.</p>
+        <p className="text-sm text-slate-400 dark:text-gray-500">
+          No students enrolled yet.
+        </p>
       )}
       {feed.students.length > 0 && (
         <ul className="divide-y divide-slate-100 dark:divide-gray-700/60">
@@ -608,7 +636,9 @@ function StudentList() {
                 <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
                   {s.full_name}
                 </p>
-                <p className="text-xs text-slate-400 dark:text-gray-500">{s.student_id}</p>
+                <p className="text-xs text-slate-400 dark:text-gray-500">
+                  {s.student_id}
+                </p>
               </div>
               <div className="flex flex-wrap justify-end gap-1">
                 {(s.enrolled_classes ?? []).map((c) => (
@@ -651,7 +681,9 @@ export default function AdminPanel({ classes, classesStatus, actions }) {
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">Dual-State</p>
+            <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
+              Attendly
+            </p>
             <h1 className="text-2xl font-semibold tracking-tight">
               Admin Panel
             </h1>

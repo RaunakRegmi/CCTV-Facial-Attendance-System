@@ -1,5 +1,5 @@
 """
-Dual-State Engine: CCTV face recognition + per-minute Firestore sync.
+Attendly Engine: CCTV face recognition + per-minute Firestore sync.
 
 Enrollment: students whose `enrolled_classes` contains --class-id are loaded from
 Firestore `students`, decoding each `photo_base64` in memory (no files written).
@@ -12,13 +12,18 @@ Pipeline per frame:
   4. Cosine similarity against enrolled students; best match above threshold wins.
   5. Each match appends an attention score to an in-memory buffer.
 
+Attendance: recognition runs for the whole session. A student's first recognition
+fixes their status for the session: "Present" within the first --late-after minutes
+(default 15) of engine startup, "Late" after that. Every log written for them carries
+that status. Enrolled students never recognized are shown Absent by the dashboard.
+
 Every SYNC_INTERVAL_SECONDS of wall-clock time the buffer is averaged per student
 and written to Firestore `classes/{class_id}/attendance_logs` in one batch, on a
 background thread so the video loop never stalls. Remaining data is flushed on exit
 (q, end of stream, Ctrl+C, or an error).
 
 Usage:
-  python dual_state_engine.py --class-id AI-101 --source test_video.mp4 --face-model yolov8n-face.pt
+  python attendly_engine.py --class-id AI-101 --source test_video.mp4 --face-model yolov8n-face.pt
 """
 
 import argparse
@@ -54,6 +59,7 @@ MATCH_THRESHOLD = 0.60
 PRINT_COOLDOWN_SECONDS = 5.0  # don't re-print the same student every frame
 CROP_PADDING = 0.25  # extra context around YOLO box before landmark detection
 SYNC_INTERVAL_SECONDS = 60
+LATE_AFTER_MINUTES = 15  # first recognized after this far into the session -> "Late"
 FIRESTORE_BATCH_LIMIT = 500  # Firestore's max writes per batch
 
 # Attention scoring: points deducted per degree away from facing the camera
@@ -207,9 +213,10 @@ def init_class_document(db, class_id, class_name=None):
     print(f"[INFO] Class document ready: classes/{class_id}{name_note}")
 
 
-def commit_scores(db, class_id, scores_by_student, label, final=False):
+def commit_scores(db, class_id, scores_by_student, statuses, label, final=False):
     """Average each student's buffered scores and write one doc per student to
     classes/{class_id}/attendance_logs, plus a last_heartbeat on classes/{class_id}.
+    statuses maps each student to their arrival status ("Present" or "Late").
 
     Always commits, even with no students, so the heartbeat keeps the dashboard's
     Active badge alive during quiet minutes. final=True also stamps last_shutdown
@@ -235,7 +242,7 @@ def commit_scores(db, class_id, scores_by_student, label, final=False):
             for student, scores in items[start:start + chunk]:
                 batch.set(logs_ref.document(), {
                     "student_name": student,
-                    "status": "Present",
+                    "status": statuses.get(student, "Present"),
                     "attention_score": round(sum(scores) / len(scores), 1),
                     "timestamp": firestore.SERVER_TIMESTAMP,
                 })
@@ -499,6 +506,10 @@ def run(args):
 
     # Firestore first: a bad key or permission error surfaces before the slow model loads
     db = init_firestore(args.key)
+    # The session starts when last_active_startup is written, which is also what the
+    # dashboard uses, so model loading time counts towards the late window
+    session_start = time.time()
+    late_after_seconds = args.late_after * 60
     init_class_document(db, args.class_id, args.class_name)
     print(f"[INFO] Syncing to Firestore path: classes/{args.class_id}/attendance_logs")
 
@@ -515,6 +526,7 @@ def run(args):
     # Single worker keeps commits ordered and off the video thread
     sync_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="firestore-sync")
     minute_scores = {}  # student name -> list of attention scores in the current window
+    arrival_status = {}  # student name -> "Present" | "Late", fixed at first recognition
     window_idx = 1
     start_time = time.time()
 
@@ -535,6 +547,11 @@ def run(args):
             for box, (name, score) in zip(boxes, match(embeddings, enrolled, names, args.threshold)):
                 draw(frame, box, name, score)
                 if name:
+                    if name not in arrival_status:
+                        elapsed = time.time() - session_start
+                        arrival_status[name] = "Late" if elapsed > late_after_seconds else "Present"
+                        print(f"[ARRIVAL] {name}: {arrival_status[name]} "
+                              f"({int(elapsed // 60)}m {int(elapsed % 60)}s into session)")
                     minute_scores.setdefault(name, []).append(estimate_attention(frame, box))
                     now = time.monotonic()
                     if now - last_printed.get(name, -PRINT_COOLDOWN_SECONDS) >= PRINT_COOLDOWN_SECONDS:
@@ -544,7 +561,8 @@ def run(args):
             # 60-second trigger: hand the buffer to the worker and start a fresh one
             current_time = time.time()
             if current_time - start_time >= SYNC_INTERVAL_SECONDS:
-                sync_pool.submit(commit_scores, db, args.class_id, minute_scores, f"Minute {window_idx}")
+                sync_pool.submit(commit_scores, db, args.class_id, minute_scores,
+                                 dict(arrival_status), f"Minute {window_idx}")
                 minute_scores = {}
                 window_idx += 1
                 start_time = current_time
@@ -557,7 +575,7 @@ def run(args):
                 next_sync = max(0, SYNC_INTERVAL_SECONDS - (current_time - start_time))
                 hud = f"FPS {fps:.1f} | faces {len(detections)} | tracked {len(minute_scores)} | sync in {next_sync:.0f}s"
                 cv2.putText(frame, hud, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2, cv2.LINE_AA)
-                cv2.imshow("Dual-State Engine", frame)
+                cv2.imshow("Attendly Engine", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     print("[INFO] Quit requested")
                     break
@@ -570,14 +588,14 @@ def run(args):
         # Graceful exit: flush the partial window and mark the class stopped (always,
         # even with no data, so the dashboard drops the Active badge), then wait.
         print(f"[INFO] Flushing {len(minute_scores)} student(s) from partial window...")
-        sync_pool.submit(commit_scores, db, args.class_id, minute_scores,
+        sync_pool.submit(commit_scores, db, args.class_id, minute_scores, dict(arrival_status),
                          f"Minute {window_idx} (final, partial)", final=True)
         sync_pool.shutdown(wait=True)
         print("[INFO] All data committed. Exiting.")
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Dual-State Engine: face recognition + Firestore sync")
+    p = argparse.ArgumentParser(description="Attendly Engine: face recognition + Firestore sync")
     p.add_argument("--source", default=str(SCRIPT_DIR / "test_video.mp4"),
                    help="Video file path, RTSP URL, or webcam index (e.g. 0)")
     p.add_argument("--photos", default=str(SCRIPT_DIR / "student_photos"),
@@ -593,6 +611,8 @@ def parse_args():
                    help="Firebase service account key")
     p.add_argument("--threshold", type=float, default=MATCH_THRESHOLD,
                    help="Cosine similarity needed to accept a match")
+    p.add_argument("--late-after", type=float, default=LATE_AFTER_MINUTES,
+                   help="Minutes after startup before a student's first recognition counts as Late")
     p.add_argument("--conf", type=float, default=0.5, help="YOLO detection confidence")
     p.add_argument("--no-display", action="store_true", help="Run headless (no OpenCV window)")
     return p.parse_args()

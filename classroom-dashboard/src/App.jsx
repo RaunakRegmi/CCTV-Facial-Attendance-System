@@ -24,8 +24,10 @@ import { CHART_COLORS, useTheme } from "./theme";
 // Config
 // ---------------------------------------------------------------------------
 
-// Students whose first "Present" log is later than class start + this are marked late.
-const LATE_GRACE_MINUTES = 5;
+// Log statuses that mean "recognized on camera". The engine stamps a student's logs
+// "Late" when it first saw them more than 15 minutes into the session (see
+// LATE_AFTER_MINUTES in backend/attendly_engine.py), otherwise "Present".
+const DETECTED = new Set(["Present", "Late"]);
 
 // Session window for a class with no last_active_startup (engine never started it).
 const SESSION_FALLBACK_HOURS = 24;
@@ -91,24 +93,17 @@ function formatLastActive(date, now) {
   });
 }
 
-// Optional `start_time: "09:00"` on the class doc -> minutes since midnight (540).
-// null means no schedule, so nobody is marked late.
-function classStartMinutes(cls) {
-  const match = /^(\d{1,2}):(\d{2})/.exec(cls?.startTime ?? "");
-  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
-}
-
 // The current session starts at the engine's last startup for this class. A class
 // the engine has never started falls back to a rolling window.
 function sessionStartFor(cls, now) {
   return cls?.lastActive ?? new Date(now - SESSION_FALLBACK_HOURS * 3_600_000);
 }
 
-// One row per enrolled student: Present if they have a Present log this session,
-// otherwise Absent. Logged names that match no enrolled student (e.g. the engine
+// One row per enrolled student: Present or Late (as the engine stamped their first
+// log this session), or Absent if they weren't recognized this session. Logged names that match no enrolled student (e.g. the engine
 // fell back to local photos) are appended so their attendance isn't hidden.
 // Expects session-scoped logs sorted by timestamp ascending.
-function buildRoster(enrolled, logs, startMinutes) {
+function buildRoster(enrolled, logs) {
   const rows = [];
   const byLabel = new Map(); // engine's student_name label -> row
   for (const s of enrolled) {
@@ -116,7 +111,7 @@ function buildRoster(enrolled, logs, startMinutes) {
       id: s.id,
       name: (s.full_name || "").trim() || s.id,
       enrolled: true,
-      firstPresent: null,
+      firstSeen: null,
       latest: null,
     };
     rows.push(row);
@@ -132,45 +127,35 @@ function buildRoster(enrolled, logs, startMinutes) {
         id: `log:${log.student_name}`,
         name: log.student_name,
         enrolled: false,
-        firstPresent: null,
+        firstSeen: null,
         latest: null,
       };
       rows.push(row);
       byLabel.set(log.student_name, row);
     }
-    if (log.status === "Present" && !row.firstPresent && log.date) {
-      row.firstPresent = log.date;
+    if (DETECTED.has(log.status) && !row.firstSeen && log.date) {
+      row.firstSeen = log;
     }
     row.latest = log;
   }
 
   return rows
-    .map((r) => {
-      const present = r.firstPresent !== null;
-      const arrivalMinutes = present
-        ? r.firstPresent.getHours() * 60 + r.firstPresent.getMinutes()
-        : null;
-      return {
-        id: r.id,
-        name: r.name,
-        enrolled: r.enrolled,
-        status: present ? "Present" : "Absent",
-        arrival: present ? formatTime(r.firstPresent) : null,
-        lastSeen: r.latest ? formatTime(r.latest.date) : null,
-        late:
-          present &&
-          startMinutes !== null &&
-          arrivalMinutes > startMinutes + LATE_GRACE_MINUTES,
-      };
-    })
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      enrolled: r.enrolled,
+      status: r.firstSeen ? r.firstSeen.status : "Absent",
+      arrival: r.firstSeen ? formatTime(r.firstSeen.date) : null,
+      lastSeen: r.latest ? formatTime(r.latest.date) : null,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Class-wide attention per minute: mean attention_score of Present logs in that minute.
+// Class-wide attention per minute: mean attention_score of detected logs in that minute.
 function buildAttention(logs) {
   const buckets = new Map();
   for (const log of logs) {
-    if (log.status !== "Present" || !log.date) continue;
+    if (!DETECTED.has(log.status) || !log.date) continue;
     if (typeof log.attention_score !== "number") continue;
     const key = formatTime(log.date);
     const b = buckets.get(key) ?? { sum: 0, count: 0 };
@@ -313,10 +298,10 @@ function Sidebar({ classes, classesStatus, selectedClass, onSelect, onExport, no
     <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 md:flex">
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-gray-700 px-6 py-5">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-          DS
+          A
         </div>
         <div>
-          <p className="text-sm font-semibold text-slate-900 dark:text-white">Dual-State</p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">Attendly</p>
           <p className="text-xs text-slate-500 dark:text-gray-400">Attendance Analytics</p>
         </div>
       </div>
@@ -472,7 +457,7 @@ function NoClassSelected({ classesStatus, error, onOpenAdmin }) {
               Open Admin Panel
             </button>
             <pre className="mt-4 overflow-x-auto rounded-lg bg-gray-950 px-4 py-3 text-left text-xs text-gray-100">
-              python dual_state_engine.py --class-id AI-101 --class-name "Introduction to AI"
+              python attendly_engine.py --class-id AI-101 --class-name "Introduction to AI"
             </pre>
           </>
         )}
@@ -491,24 +476,28 @@ function StatCard({ label, children, footnote }) {
   );
 }
 
-function StatusBadge({ status, late }) {
-  if (status === "Absent") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 dark:bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300 ring-1 ring-inset ring-red-600/20 dark:ring-red-500/30">
-        <span className="h-1.5 w-1.5 rounded-full bg-red-500" /> Absent
-      </span>
-    );
-  }
+const STATUS_STYLES = {
+  Present: {
+    badge: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-600/20 dark:ring-emerald-500/30",
+    dot: "bg-emerald-500",
+  },
+  Late: {
+    badge: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-600/20 dark:ring-amber-500/30",
+    dot: "bg-amber-500",
+  },
+  Absent: {
+    badge: "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 ring-red-600/20 dark:ring-red-500/30",
+    dot: "bg-red-500",
+  },
+};
+
+function StatusBadge({ status }) {
+  const style = STATUS_STYLES[status] ?? STATUS_STYLES.Present;
   return (
-    <span className="inline-flex items-center gap-2">
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-600/20 dark:ring-emerald-500/30">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Present
-      </span>
-      {late && (
-        <span className="rounded-full bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-600/20 dark:ring-amber-500/30">
-          Late
-        </span>
-      )}
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${style.badge}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} /> {status}
     </span>
   );
 }
@@ -660,23 +649,23 @@ export default function TeacherDashboard() {
   const error = loading ? null : feed.error;
 
   // Everything below (roster, metrics, chart, exports) covers the current session only
-  const sessionStartMs = sessionStartFor(classInfo, now).getTime();
-  const logs = useMemo(
-    () => allLogs.filter((l) => l.date && l.date.getTime() >= sessionStartMs),
-    [allLogs, sessionStartMs],
-  );
+  const logs = useMemo(() => {
+    const sessionStartMs = sessionStartFor(classInfo, now).getTime();
+    return allLogs.filter((l) => l.date && l.date.getTime() >= sessionStartMs);
+  }, [allLogs, classInfo, now]);
   const enrolled = loading ? EMPTY : studentsFeed.students;
 
   const roster = useMemo(
-    () => buildRoster(enrolled, logs, classStartMinutes(classInfo)),
-    [enrolled, logs, classInfo],
+    () => buildRoster(enrolled, logs),
+    [enrolled, logs],
   );
   const attention = useMemo(() => buildAttention(logs), [logs]);
 
-  const presentCount = roster.filter((s) => s.status === "Present").length;
-  const lateCount = roster.filter((s) => s.late).length;
+  // Late students still attended, so they count towards Total Present
+  const presentCount = roster.filter((s) => s.status !== "Absent").length;
+  const lateCount = roster.filter((s) => s.status === "Late").length;
   const presentLogs = logs.filter(
-    (l) => l.status === "Present" && typeof l.attention_score === "number",
+    (l) => DETECTED.has(l.status) && typeof l.attention_score === "number",
   );
   const avgAttention = presentLogs.length
     ? Math.round(
@@ -707,7 +696,7 @@ export default function TeacherDashboard() {
       return;
     }
 
-    const stamp = `${safeFilePart(classId)}_${formatDate(new Date(sessionStartMs))}`;
+    const stamp = `${safeFilePart(classId)}_${formatDate(sessionStartFor(classInfo, now))}`;
     if (kind === "report") {
       downloadCsv(`Attendance_Report_${stamp}.csv`, [
         ["Timestamp", "Student Name", "Status", "Attention Score (%)"],
@@ -969,7 +958,7 @@ export default function TeacherDashboard() {
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-gray-700 px-5 py-4">
                   <h2 className="text-base font-semibold">Attendance Roster</h2>
                   <div className="inline-flex rounded-lg bg-slate-100 dark:bg-gray-700 p-1 text-sm">
-                    {["All", "Present", "Absent"].map((f) => (
+                    {["All", "Present", "Late", "Absent"].map((f) => (
                       <button
                         key={f}
                         onClick={() => setFilter(f)}
@@ -1020,7 +1009,7 @@ export default function TeacherDashboard() {
                             </p>
                           </td>
                           <td className="whitespace-nowrap px-5 py-3">
-                            <StatusBadge status={s.status} late={s.late} />
+                            <StatusBadge status={s.status} />
                           </td>
                           <td className="whitespace-nowrap px-5 py-3 tabular-nums text-slate-700 dark:text-gray-300">
                             {s.arrival ?? <span className="text-slate-300 dark:text-gray-600">—</span>}
