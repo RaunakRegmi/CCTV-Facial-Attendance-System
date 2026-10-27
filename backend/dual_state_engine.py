@@ -9,12 +9,12 @@ Pipeline per frame:
   5. Each match appends an attention score to an in-memory buffer.
 
 Every SYNC_INTERVAL_SECONDS of wall-clock time the buffer is averaged per student
-and written to Firestore `attendance_logs` in one batch, on a background thread so
-the video loop never stalls. Remaining data is flushed on exit (q, end of stream,
-Ctrl+C, or an error).
+and written to Firestore `classes/{class_id}/attendance_logs` in one batch, on a
+background thread so the video loop never stalls. Remaining data is flushed on exit
+(q, end of stream, Ctrl+C, or an error).
 
 Usage:
-  python dual_state_engine.py --source test_video.mp4 --face-model yolov8n-face.pt
+  python dual_state_engine.py --class-id AI-101 --source test_video.mp4 --face-model yolov8n-face.pt
 """
 
 import argparse
@@ -174,29 +174,78 @@ def init_firestore(key_path):
     return firestore.client()
 
 
-def commit_scores(db, scores_by_student, label):
-    """Average each student's buffered scores and write one attendance_logs doc per student.
+def init_class_document(db, class_id, class_name=None):
+    """Create/refresh classes/{class_id} so the parent exists as a real document
+    (writing only to its attendance_logs sub-collection leaves it a phantom that
+    queries on `classes` can't see).
+
+    Merges, so fields set elsewhere (e.g. a name edited in the console) survive.
+    class_name is only written if passed explicitly or the doc doesn't have one yet.
+    """
+    ref = db.collection("classes").document(class_id)
+    data = {
+        "class_id": class_id,
+        "last_active_startup": firestore.SERVER_TIMESTAMP,
+        # Mark Active right away rather than after the first 60s sync
+        "last_heartbeat": firestore.SERVER_TIMESTAMP,
+    }
+    if class_name:
+        data["class_name"] = class_name
+    else:
+        snap = ref.get()
+        if not snap.exists or not (snap.to_dict() or {}).get("class_name"):
+            data["class_name"] = f"Class {class_id}"
+    ref.set(data, merge=True)
+    name_note = f", class_name={data['class_name']!r}" if "class_name" in data else " (kept existing class_name)"
+    print(f"[INFO] Class document ready: classes/{class_id}{name_note}")
+
+
+def commit_scores(db, class_id, scores_by_student, label, final=False):
+    """Average each student's buffered scores and write one doc per student to
+    classes/{class_id}/attendance_logs, plus a last_heartbeat on classes/{class_id}.
+
+    Always commits, even with no students, so the heartbeat keeps the dashboard's
+    Active badge alive during quiet minutes. final=True also stamps last_shutdown
+    so the badge clears immediately on a graceful exit instead of timing out.
 
     Runs on the sync worker thread; errors are logged, never raised into the video loop.
     """
-    if not scores_by_student:
-        return
     try:
+        class_ref = db.collection("classes").document(class_id)
+        logs_ref = class_ref.collection("attendance_logs")
+        status = {"last_heartbeat": firestore.SERVER_TIMESTAMP}
+        if final:
+            status["last_shutdown"] = firestore.SERVER_TIMESTAMP
+
         items = list(scores_by_student.items())
-        for start in range(0, len(items), FIRESTORE_BATCH_LIMIT):
+        # First batch carries the heartbeat, so it gets one fewer log slot
+        chunk = FIRESTORE_BATCH_LIMIT - 1
+        for start in range(0, max(len(items), 1), chunk):
             batch = db.batch()
-            for student, scores in items[start:start + FIRESTORE_BATCH_LIMIT]:
-                batch.set(db.collection("attendance_logs").document(), {
+            if start == 0:
+                # merge=True: only touches these fields, keeps class_name/room/etc.
+                batch.set(class_ref, status, merge=True)
+            for student, scores in items[start:start + chunk]:
+                batch.set(logs_ref.document(), {
                     "student_name": student,
                     "status": "Present",
                     "attention_score": round(sum(scores) / len(scores), 1),
                     "timestamp": firestore.SERVER_TIMESTAMP,
                 })
             batch.commit()
-        summary = ", ".join(f"{s} ({len(v)} samples)" for s, v in items)
-        print(f"[SYNC] {label}: pushed {len(items)} student(s) to Firestore: {summary}")
+
+        if items:
+            summary = ", ".join(f"{s} ({len(v)} samples)" for s, v in items[:8])
+            if len(items) > 8:
+                summary += f", +{len(items) - 8} more"
+            print(f"[SYNC] Committed batch for class: {class_id} | {label}: {len(items)} student(s): {summary}")
+        else:
+            print(f"[SYNC] Heartbeat for class: {class_id} | {label}: no students recognized")
+        if final:
+            print(f"[SYNC] Marked class {class_id} as stopped")
     except Exception as e:
-        print(f"[ERROR] {label}: Firestore commit failed, {len(scores_by_student)} student(s) lost: {e}")
+        print(f"[ERROR] Class {class_id} | {label}: Firestore commit failed, "
+              f"{len(scores_by_student)} student(s) lost: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -377,11 +426,19 @@ def draw(frame, box, name, score):
 # ---------------------------------------------------------------------------
 
 def run(args):
+    # Validate before loading models so a typo fails in seconds, not after warm-up
+    if not args.class_id.strip() or "/" in args.class_id:
+        raise ValueError(f"Invalid --class-id {args.class_id!r}: must be non-empty and contain no '/'")
+
+    # Firestore first: a bad key or permission error surfaces before the slow model loads
+    db = init_firestore(args.key)
+    init_class_document(db, args.class_id, args.class_name)
+    print(f"[INFO] Syncing to Firestore path: classes/{args.class_id}/attendance_logs")
+
     device = get_torch_device()
     detector = load_face_detector(args.face_model, device)
     app = load_insightface(get_onnx_providers())
     names, enrolled = enroll_students(app, args.photos)
-    db = init_firestore(args.key)
 
     source = int(args.source) if args.source.isdigit() else args.source
     cap = cv2.VideoCapture(source)
@@ -420,7 +477,7 @@ def run(args):
             # 60-second trigger: hand the buffer to the worker and start a fresh one
             current_time = time.time()
             if current_time - start_time >= SYNC_INTERVAL_SECONDS:
-                sync_pool.submit(commit_scores, db, minute_scores, f"Minute {window_idx}")
+                sync_pool.submit(commit_scores, db, args.class_id, minute_scores, f"Minute {window_idx}")
                 minute_scores = {}
                 window_idx += 1
                 start_time = current_time
@@ -443,10 +500,11 @@ def run(args):
         cap.release()
         cv2.destroyAllWindows()
         face_mesh.close()
-        # Graceful exit: flush the partial window, then wait for all pending commits
-        if minute_scores:
-            print(f"[INFO] Flushing {len(minute_scores)} student(s) from partial window...")
-            sync_pool.submit(commit_scores, db, minute_scores, f"Minute {window_idx} (final, partial)")
+        # Graceful exit: flush the partial window and mark the class stopped (always,
+        # even with no data, so the dashboard drops the Active badge), then wait.
+        print(f"[INFO] Flushing {len(minute_scores)} student(s) from partial window...")
+        sync_pool.submit(commit_scores, db, args.class_id, minute_scores,
+                         f"Minute {window_idx} (final, partial)", final=True)
         sync_pool.shutdown(wait=True)
         print("[INFO] All data committed. Exiting.")
 
@@ -459,6 +517,10 @@ def parse_args():
                    help="Directory of enrollment .jpg files named after students")
     p.add_argument("--face-model", default=str(SCRIPT_DIR / "yolov8n-face.pt"),
                    help="YOLOv8 face detection weights")
+    p.add_argument("--class-id", type=str, default="AI-101", help="Firestore Class ID")
+    p.add_argument("--class-name", type=str, default=None,
+                   help="Display name stored on classes/{class-id} (default: keep existing, "
+                        "or 'Class <id>' for a new class)")
     p.add_argument("--key", default=str(SCRIPT_DIR / "serviceAccountKey.json"),
                    help="Firebase service account key")
     p.add_argument("--threshold", type=float, default=MATCH_THRESHOLD,
