@@ -1,0 +1,9 @@
+certifi
+firebase-admin
+opencv-python
+numpy
+torch
+ultralytics
+insightface
+onnxruntime
+mediapipe

@@ -1,1 +1,15 @@
 node_modules
+
+# Secrets
+serviceAccountKey.json
+
+# Biometric data, model weights, test footage
+student_photos/
+*.pt
+*.onnx
+*.task
+*.mp4
+
+# Python
+__pycache__/
+.venv/
