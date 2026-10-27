@@ -5,5 +5,18 @@
     "postcss": "^8.5.32",
     "recharts": "^3.10.1",
     "tailwindcss": "^4.3.3"
+  },
+  "name": "attendly",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CCTV attendance modular monolith",
+  "scripts": {
+    "dev": "npm --prefix classroom-dashboard run dev",
+    "dev:api": "python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload",
+    "build": "npm --prefix classroom-dashboard run build",
+    "start": "python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000",
+    "lint": "npm --prefix classroom-dashboard run lint",
+    "test:web": "npm --prefix classroom-dashboard test",
+    "test:api": "python -m pytest backend/tests -q"
   }
 }

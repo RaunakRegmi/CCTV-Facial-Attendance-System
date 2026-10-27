@@ -1,18 +1,20 @@
 {
-  "name": "classroom-dashboard",
+  "name": "attendly-web",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
-    "firebase": "^13.1.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "lucide-react": "^1.61.0",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -24,9 +26,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.13.0",
-    "lucide-react": "^1.61.0",
     "postcss": "^8.5.32",
-    "recharts": "^3.10.1",
     "tailwindcss": "^3.4.19",
     "vite": "^8.3.4"
   }

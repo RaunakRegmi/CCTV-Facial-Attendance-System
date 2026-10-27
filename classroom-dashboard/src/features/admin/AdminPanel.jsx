@@ -1,16 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-} from "firebase/firestore";
-import { db } from "./firebase";
+import { api, poll } from "../../shared/api";
 
 // ---------------------------------------------------------------------------
 // Config & helpers
@@ -106,7 +95,7 @@ function Field({ label, hint, children }) {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900 px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50";
+  "w-full rounded-lg border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900 px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50";
 
 function Spinner() {
   return (
@@ -139,7 +128,7 @@ function SubmitButton({ busy, busyLabel, disabled, children }) {
     <button
       type="submit"
       disabled={busy || disabled}
-      className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-70"
+      className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-70"
     >
       {busy && <Spinner />}
       {busy ? busyLabel : children}
@@ -202,18 +191,9 @@ function AddClassForm({ classes }) {
     setBusy(true);
     setStatus(null);
     try {
-      const classRef = doc(db, "classes", classId);
-      // Don't clobber an existing class (and the engine's heartbeat fields on it)
-      if ((await getDoc(classRef)).exists()) {
-        setStatus({ type: "error", text: `Class ${classId} already exists.` });
-        return;
-      }
-      await setDoc(classRef, {
-        class_id: classId,
-        class_name: className,
-        room: room || null,
-        created_at: serverTimestamp(),
-      });
+      await api('/classes', { method: 'POST', body: JSON.stringify({
+        class_id: classId, class_name: className, room: room || null,
+      }) });
       setStatus({
         type: "success",
         text: `Created ${classId} — ${className}.`,
@@ -234,7 +214,7 @@ function AddClassForm({ classes }) {
     <Card title="Add Class">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Class ID" hint="Must match the engine's --class-id">
+          <Field label="Class ID" hint="A unique identifier for this class">
             <input
               className={inputClass}
               value={form.classId}
@@ -366,25 +346,12 @@ function AddStudentForm({ classes }) {
     if (error) return setStatus({ type: "error", text: error });
 
     setStatus(null);
-    const studentRef = doc(db, "students", studentId);
     try {
-      setPhase("checking");
-      if ((await getDoc(studentRef)).exists()) {
-        setStatus({
-          type: "error",
-          text: `Student ${studentId} is already enrolled.`,
-        });
-        return;
-      }
-
       setPhase("saving");
-      await setDoc(studentRef, {
-        full_name: fullName,
-        student_id: studentId,
-        photo_base64: photo.dataUrl,
-        enrolled_classes: form.enrolled,
-        created_at: serverTimestamp(),
-      });
+      await api('/students', { method: 'POST', body: JSON.stringify({
+        full_name: fullName, student_id: studentId,
+        photo_base64: photo.dataUrl, enrolled_classes: form.enrolled,
+      }) });
 
       setStatus({
         type: "success",
@@ -419,7 +386,7 @@ function AddStudentForm({ classes }) {
               className={inputClass}
               value={form.fullName}
               onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-              placeholder="Raunak Regmi"
+              placeholder="Student full name"
               disabled={busy}
               required
             />
@@ -457,7 +424,7 @@ function AddStudentForm({ classes }) {
                     title={c.name}
                     className={`rounded-full border px-3 py-1 text-sm font-medium transition-colors disabled:opacity-50 ${
                       on
-                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-200"
+                        ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-200"
                         : "border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900 text-slate-500 dark:text-gray-400 hover:border-slate-400 dark:hover:border-gray-500 hover:text-slate-700 dark:hover:text-gray-200"
                     }`}
                   >
@@ -521,22 +488,11 @@ function StudentList() {
     error: null,
   });
 
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      query(collection(db, "students"), orderBy("full_name")),
-      (snapshot) =>
-        setFeed({
-          status: "ready",
-          error: null,
-          students: snapshot.docs.map((d) => ({ id: d.id, ...d.data() })),
-        }),
-      (err) => {
-        console.error("students listener failed:", err);
-        setFeed({ status: "error", students: [], error: err });
-      },
-    );
-    return unsubscribe;
-  }, []);
+  useEffect(() => poll(
+    signal => api('/students', { signal }),
+    students => setFeed({ status: 'ready', students, error: null }),
+    error => setFeed({ status: 'error', students: [], error }),
+  ), []);
 
   // Doc IDs with a delete in flight; each row's button is disabled while its ID is here
   const [deleting, setDeleting] = useState(() => new Set());
@@ -554,8 +510,9 @@ function StudentList() {
     setDeleteStatus(null);
     setDeleting((prev) => new Set(prev).add(student.id));
     try {
-      // The onSnapshot listener above removes the row as soon as this applies locally
-      await deleteDoc(doc(db, "students", student.id));
+      // Remove the row after the backend confirms deletion.
+      await api(`/students/${encodeURIComponent(student.id)}`, { method: "DELETE" });
+      setFeed(previous => ({ ...previous, students: previous.students.filter(s => s.id !== student.id) }));
     } catch (err) {
       console.error("Delete student failed:", err);
       setDeleteStatus({
@@ -585,7 +542,7 @@ function StudentList() {
       )}
       {feed.status === "error" && (
         <p className="text-sm text-red-700 dark:text-red-300">
-          Couldn't load students: {feed.error?.code ?? "error"}
+          Couldn't load students: {feed.error?.message ?? "Service unavailable"}
         </p>
       )}
       {feed.status === "ready" && feed.students.length === 0 && (
@@ -595,15 +552,9 @@ function StudentList() {
         <ul className="divide-y divide-slate-100 dark:divide-gray-700/60">
           {feed.students.map((s) => (
             <li key={s.id} className="flex items-center gap-3 py-3">
-              {s.photo_base64 ? (
-                <img
-                  src={s.photo_base64}
-                  alt=""
-                  className="h-10 w-10 shrink-0 rounded-full border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900 object-cover"
-                />
-              ) : (
-                <div className="h-10 w-10 shrink-0 rounded-full border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900" />
-              )}
+              <div aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+                {(s.full_name || s.id).slice(0, 1).toUpperCase()}
+              </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
                   {s.full_name}
@@ -651,7 +602,7 @@ export default function AdminPanel({ classes, classesStatus, actions }) {
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">Dual-State</p>
+            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">CLASSROOM MANAGEMENT</p>
             <h1 className="text-2xl font-semibold tracking-tight">
               Admin Panel
             </h1>
@@ -664,7 +615,7 @@ export default function AdminPanel({ classes, classesStatus, actions }) {
 
         {classesStatus === "error" && (
           <p className="mb-6 rounded-lg border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
-            Couldn't load classes. Check your Firestore security rules.
+            Couldn't load classes. Check your connection and account access.
           </p>
         )}
 

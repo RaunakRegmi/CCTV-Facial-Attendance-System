@@ -64,3 +64,13 @@ ehthumbs.db
 Thumbs.db
 .vscode/
 .idea/
+# API environments and test artifacts
+.venv-api/
+.pytest_cache/
+.coverage
+
+# Local tooling, credentials and working documentation
+.codex/
+.aws/
+.agents/
+docs/

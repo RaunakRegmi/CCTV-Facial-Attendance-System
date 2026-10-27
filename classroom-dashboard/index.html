@@ -4,18 +4,10 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>classroom-dashboard</title>
-    <script>
-      // Apply the saved theme before first paint so reloads don't flash the wrong theme.
-      // Keep in sync with readInitialDarkMode() in src/theme.js.
-      try {
-        var saved = localStorage.getItem("theme");
-        var dark = saved ? saved === "dark" : !window.matchMedia("(prefers-color-scheme: light)").matches;
-        document.documentElement.classList.toggle("dark", dark);
-      } catch (e) {
-        document.documentElement.classList.add("dark");
-      }
-    </script>
+    <meta name="theme-color" content="#173c30" />
+    <meta name="description" content="Your secure classroom workspace for attendance and engagement." />
+    <title>Attendly — Classroom workspace</title>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>
