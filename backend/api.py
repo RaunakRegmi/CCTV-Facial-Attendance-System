@@ -24,6 +24,9 @@ from firebase_admin import credentials, firestore
 from google.api_core.exceptions import AlreadyExists
 from google.cloud.firestore_v1.base_query import FieldFilter
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints
+from pydantic import BaseModel
+from firebase_admin import firestore
+from datetime import datetime, timezone
 
 KEY_PATH = Path(os.environ.get("SERVICE_ACCOUNT_KEY", Path(__file__).parent / "serviceAccountKey.json"))
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
@@ -79,6 +82,14 @@ class StudentIn(BaseModel):
     enrolled_classes: list[DocId] = Field(min_length=1)
 
 
+class ViolationCreate(BaseModel):
+    exam_id: str
+    violation_type: str
+    confidence: float
+    details: str
+    evidence_snapshot: str
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -129,7 +140,42 @@ def create_student(body: StudentIn):
     })
     return {"id": ref.id}
 
+@app.post("/api/exams/violations")
+async def log_exam_violation(violation: ViolationCreate):
+    try:
+        doc_ref = db.collection("exam_violations").document()
+        doc_ref.set({
+            "exam_id": violation.exam_id,
+            "violation_type": violation.violation_type,
+            "confidence": violation.confidence,
+            "details": violation.details,
+            "evidence_snapshot": violation.evidence_snapshot,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "Unreviewed"
+        })
+        return {"status": "logged", "id": doc_ref.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
+class ViolationStatusUpdate(BaseModel):
+    status: str  # "Confirmed" or "Dismissed"
+
+@app.patch("/api/exams/violations/{violation_id}")
+async def update_violation_status(violation_id: str, update: ViolationStatusUpdate):
+    if update.status not in ["Confirmed", "Dismissed", "Unreviewed"]:
+        raise HTTPException(status_code=400, detail="Invalid status value")
+    try:
+        doc_ref = db.collection("exam_violations").document(violation_id)
+        if not doc_ref.get().exists:
+            raise HTTPException(status_code=404, detail="Violation not found")
+        doc_ref.update({"status": update.status})
+        return {"status": "updated", "id": violation_id, "new_status": update.status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    
 @app.delete("/api/students/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_student(doc_id: DocId):
     # Past attendance logs are kept; they reference the name, not this doc

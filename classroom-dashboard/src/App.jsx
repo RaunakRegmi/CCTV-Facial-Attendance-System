@@ -20,6 +20,16 @@ import AdminPanel from "./AdminPanel";
 import { db } from "./firebase";
 import { CHART_COLORS, useTheme } from "./theme";
 
+import ExamProctorDashboard from "./components/ExamProctorDashboard";
+
+// Inside your navigation bar:
+<button onClick={() => setActiveTab("proctor")}>Exam Proctor</button>;
+
+// Inside your main view switcher:
+{
+  activeTab === "proctor" && <ExamProctorDashboard />;
+}
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -195,7 +205,9 @@ function csvCell(value) {
 function downloadCsv(filename, rows) {
   // BOM so Excel reads UTF-8 names (accents, non-Latin scripts) correctly
   const csv = "﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const url = URL.createObjectURL(
+    new Blob([csv], { type: "text/csv;charset=utf-8" }),
+  );
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
@@ -266,12 +278,22 @@ function ThemeToggle({ isDarkMode, onToggle }) {
     >
       {isDarkMode ? (
         // Sun: shown in dark mode, switches to light
-        <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <svg
+          className="h-5 w-5"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden="true"
+        >
           <path d="M10 2a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 2ZM10 15a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 15ZM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM15.657 5.404a.75.75 0 1 0-1.06-1.06l-1.061 1.06a.75.75 0 0 0 1.06 1.06l1.06-1.06ZM6.464 14.596a.75.75 0 1 0-1.06-1.06l-1.06 1.06a.75.75 0 0 0 1.06 1.06l1.06-1.06ZM18 10a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 18 10ZM5 10a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 5 10ZM14.596 15.657a.75.75 0 0 0 1.06-1.06l-1.06-1.061a.75.75 0 1 0-1.06 1.06l1.06 1.06ZM5.404 6.464a.75.75 0 0 0 1.06-1.06l-1.06-1.06a.75.75 0 1 0-1.061 1.06l1.06 1.06Z" />
         </svg>
       ) : (
         // Moon: shown in light mode, switches to dark
-        <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <svg
+          className="h-5 w-5"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden="true"
+        >
           <path
             fillRule="evenodd"
             d="M7.455 2.004a.75.75 0 0 1 .26.77 7 7 0 0 0 9.958 7.967.75.75 0 0 1 1.067.853A8.5 8.5 0 1 1 6.647 1.921a.75.75 0 0 1 .808.083Z"
@@ -284,7 +306,10 @@ function ThemeToggle({ isDarkMode, onToggle }) {
 }
 
 function ActiveDot({ active }) {
-  if (!active) return <span className="h-2 w-2 rounded-full bg-slate-300 dark:bg-gray-600" />;
+  if (!active)
+    return (
+      <span className="h-2 w-2 rounded-full bg-slate-300 dark:bg-gray-600" />
+    );
   return (
     <span className="relative flex h-2 w-2">
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -293,7 +318,14 @@ function ActiveDot({ active }) {
   );
 }
 
-function Sidebar({ classes, classesStatus, selectedClass, onSelect, onExport, now }) {
+function Sidebar({
+  classes,
+  classesStatus,
+  selectedClass,
+  onSelect,
+  onExport,
+  now,
+}) {
   return (
     <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 md:flex">
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-gray-700 px-6 py-5">
@@ -301,8 +333,12 @@ function Sidebar({ classes, classesStatus, selectedClass, onSelect, onExport, no
           A
         </div>
         <div>
-          <p className="text-sm font-semibold text-slate-900 dark:text-white">Attendly</p>
-          <p className="text-xs text-slate-500 dark:text-gray-400">Attendance Analytics</p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">
+            Attendly
+          </p>
+          <p className="text-xs text-slate-500 dark:text-gray-400">
+            Attendance Analytics
+          </p>
         </div>
       </div>
 
@@ -323,7 +359,9 @@ function Sidebar({ classes, classesStatus, selectedClass, onSelect, onExport, no
         )}
 
         {classesStatus === "error" && (
-          <p className="px-3 text-sm text-red-600 dark:text-red-400">Couldn't load classes.</p>
+          <p className="px-3 text-sm text-red-600 dark:text-red-400">
+            Couldn't load classes.
+          </p>
         )}
 
         {classesStatus === "ready" && classes.length === 0 && (
@@ -394,7 +432,14 @@ function Sidebar({ classes, classesStatus, selectedClass, onSelect, onExport, no
   );
 }
 
-function MobileClassPicker({ classes, classesStatus, selectedClass, onSelect, onExport, now }) {
+function MobileClassPicker({
+  classes,
+  classesStatus,
+  selectedClass,
+  onSelect,
+  onExport,
+  now,
+}) {
   const placeholder =
     classesStatus === "loading"
       ? "Loading classes…"
@@ -446,7 +491,9 @@ function NoClassSelected({ classesStatus, error, onOpenAdmin }) {
       <div className="max-w-md rounded-xl border border-dashed border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-8 text-center shadow-sm">
         <h1 className="text-lg font-semibold">{content.title}</h1>
         {content.body && (
-          <p className="mt-2 text-sm text-slate-500 dark:text-gray-400">{content.body}</p>
+          <p className="mt-2 text-sm text-slate-500 dark:text-gray-400">
+            {content.body}
+          </p>
         )}
         {classesStatus === "ready" && (
           <>
@@ -457,7 +504,8 @@ function NoClassSelected({ classesStatus, error, onOpenAdmin }) {
               Open Admin Panel
             </button>
             <pre className="mt-4 overflow-x-auto rounded-lg bg-gray-950 px-4 py-3 text-left text-xs text-gray-100">
-              python attendly_engine.py --class-id AI-101 --class-name "Introduction to AI"
+              python attendly_engine.py --class-id AI-101 --class-name
+              "Introduction to AI"
             </pre>
           </>
         )}
@@ -469,24 +517,33 @@ function NoClassSelected({ classesStatus, error, onOpenAdmin }) {
 function StatCard({ label, children, footnote }) {
   return (
     <div className="rounded-xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm">
-      <p className="text-sm font-medium text-slate-500 dark:text-gray-400">{label}</p>
+      <p className="text-sm font-medium text-slate-500 dark:text-gray-400">
+        {label}
+      </p>
       <div className="mt-2">{children}</div>
-      {footnote && <p className="mt-2 text-xs text-slate-400 dark:text-gray-500">{footnote}</p>}
+      {footnote && (
+        <p className="mt-2 text-xs text-slate-400 dark:text-gray-500">
+          {footnote}
+        </p>
+      )}
     </div>
   );
 }
 
 const STATUS_STYLES = {
   Present: {
-    badge: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-600/20 dark:ring-emerald-500/30",
+    badge:
+      "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-600/20 dark:ring-emerald-500/30",
     dot: "bg-emerald-500",
   },
   Late: {
-    badge: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-600/20 dark:ring-amber-500/30",
+    badge:
+      "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-600/20 dark:ring-amber-500/30",
     dot: "bg-amber-500",
   },
   Absent: {
-    badge: "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 ring-red-600/20 dark:ring-red-500/30",
+    badge:
+      "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 ring-red-600/20 dark:ring-red-500/30",
     dot: "bg-red-500",
   },
 };
@@ -509,7 +566,9 @@ function AttentionTooltip({ active, payload, label }) {
       <p className="text-xs text-slate-500 dark:text-gray-400">{label}</p>
       <p className="font-semibold text-slate-900 dark:text-white">
         {payload[0].value}
-        <span className="ml-1 font-normal text-slate-500 dark:text-gray-400">attention</span>
+        <span className="ml-1 font-normal text-slate-500 dark:text-gray-400">
+          attention
+        </span>
       </p>
     </div>
   );
@@ -609,7 +668,10 @@ export default function TeacherDashboard() {
         });
       },
       (err) => {
-        console.error(`classes/${classId}/attendance_logs listener failed:`, err);
+        console.error(
+          `classes/${classId}/attendance_logs listener failed:`,
+          err,
+        );
         setFeed({ classId, logs: [], error: err });
       },
     );
@@ -640,8 +702,7 @@ export default function TeacherDashboard() {
     return unsubscribe;
   }, [classId]);
 
-  const loading =
-    feed.classId !== classId || studentsFeed.classId !== classId;
+  const loading = feed.classId !== classId || studentsFeed.classId !== classId;
   const allLogs = useMemo(
     () => (loading ? [] : feed.logs),
     [loading, feed.logs],
@@ -655,10 +716,7 @@ export default function TeacherDashboard() {
   }, [allLogs, classInfo, now]);
   const enrolled = loading ? EMPTY : studentsFeed.students;
 
-  const roster = useMemo(
-    () => buildRoster(enrolled, logs),
-    [enrolled, logs],
-  );
+  const roster = useMemo(() => buildRoster(enrolled, logs), [enrolled, logs]);
   const attention = useMemo(() => buildAttention(logs), [logs]);
 
   // Late students still attended, so they count towards Total Present
@@ -673,7 +731,9 @@ export default function TeacherDashboard() {
           presentLogs.length,
       )
     : 0;
-  const lastSync = logs.length ? formatTime(logs[logs.length - 1].date, true) : null;
+  const lastSync = logs.length
+    ? formatTime(logs[logs.length - 1].date, true)
+    : null;
 
   const visibleRoster =
     filter === "All" ? roster : roster.filter((s) => s.status === filter);
@@ -683,7 +743,9 @@ export default function TeacherDashboard() {
   const handleExport = (kind) => {
     if (!classId) return;
     if (loading) {
-      window.alert(`Still loading ${classId}'s attendance data. Try again in a moment.`);
+      window.alert(
+        `Still loading ${classId}'s attendance data. Try again in a moment.`,
+      );
       return;
     }
     // A roster with nobody detected yet is still useful (everyone Absent)
@@ -710,7 +772,12 @@ export default function TeacherDashboard() {
     } else {
       downloadCsv(`Attendance_Roster_${stamp}.csv`, [
         ["Student Name", "Status", "Arrival Time", "Last Seen"],
-        ...roster.map((s) => [s.name, s.status, s.arrival ?? "", s.lastSeen ?? ""]),
+        ...roster.map((s) => [
+          s.name,
+          s.status,
+          s.arrival ?? "",
+          s.lastSeen ?? "",
+        ]),
       ]);
     }
   };
@@ -846,7 +913,7 @@ export default function TeacherDashboard() {
                   label="System Status"
                   footnote={
                     error
-                      ? error.code ?? "Listener error"
+                      ? (error.code ?? "Listener error")
                       : `Firestore live · last log ${lastSync ?? "—"}`
                   }
                 >
@@ -905,7 +972,9 @@ export default function TeacherDashboard() {
                 <div className="h-72 w-full">
                   {attention.length === 0 ? (
                     <div className="flex h-full items-center justify-center text-sm text-slate-400 dark:text-gray-500">
-                      {loading ? "Loading attention data…" : "No attention data yet"}
+                      {loading
+                        ? "Loading attention data…"
+                        : "No attention data yet"}
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
@@ -944,7 +1013,11 @@ export default function TeacherDashboard() {
                           stroke={chart.line}
                           strokeWidth={2}
                           dot={false}
-                          activeDot={{ r: 5, stroke: chart.dotRing, strokeWidth: 2 }}
+                          activeDot={{
+                            r: 5,
+                            stroke: chart.dotRing,
+                            strokeWidth: 2,
+                          }}
                           isAnimationActive={false}
                         />
                       </LineChart>
@@ -998,9 +1071,14 @@ export default function TeacherDashboard() {
                         </tr>
                       )}
                       {visibleRoster.map((s) => (
-                        <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-gray-700/50">
+                        <tr
+                          key={s.id}
+                          className="hover:bg-slate-50 dark:hover:bg-gray-700/50"
+                        >
                           <td className="whitespace-nowrap px-5 py-3">
-                            <p className="font-medium text-slate-900 dark:text-white">{s.name}</p>
+                            <p className="font-medium text-slate-900 dark:text-white">
+                              {s.name}
+                            </p>
                             <p className="text-xs text-slate-400 dark:text-gray-500">
                               {s.lastSeen
                                 ? `Last seen ${s.lastSeen}`
@@ -1012,7 +1090,11 @@ export default function TeacherDashboard() {
                             <StatusBadge status={s.status} />
                           </td>
                           <td className="whitespace-nowrap px-5 py-3 tabular-nums text-slate-700 dark:text-gray-300">
-                            {s.arrival ?? <span className="text-slate-300 dark:text-gray-600">—</span>}
+                            {s.arrival ?? (
+                              <span className="text-slate-300 dark:text-gray-600">
+                                —
+                              </span>
+                            )}
                           </td>
                         </tr>
                       ))}
