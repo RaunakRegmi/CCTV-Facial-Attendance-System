@@ -8,7 +8,7 @@ import { db } from "./firebase";
 
 // Reads come straight from Firestore; writes go through the FastAPI backend
 // (backend/api.py) because the Firestore rules deny all client writes.
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
 // fetch() wrapper: throws with FastAPI's error detail on a non-2xx response.
 async function api(method, path, body) {

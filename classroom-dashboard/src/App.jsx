@@ -19,16 +19,7 @@ import {
 import AdminPanel from "./AdminPanel";
 import { db } from "./firebase";
 import { CHART_COLORS, useTheme } from "./theme";
-
-import ExamProctorDashboard from "./components/ExamProctorDashboard";
-
-// Inside your navigation bar:
-<button onClick={() => setActiveTab("proctor")}>Exam Proctor</button>;
-
-// Inside your main view switcher:
-{
-  activeTab === "proctor" && <ExamProctorDashboard />;
-}
+import ExamProctorDashboard from "./ExamProctorDashboard";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -236,6 +227,7 @@ function useNow(intervalMs = 15_000) {
 const VIEWS = [
   { id: "dashboard", label: "Live Dashboard" },
   { id: "admin", label: "Admin Panel" },
+  { id: "proctor", label: "Exam Proctor" },
 ];
 
 function ViewTabs({ view, onChange }) {
@@ -813,6 +805,10 @@ export default function TeacherDashboard() {
         actions={headerActions}
       />
     );
+  }
+
+  if (view === "proctor") {
+    return <ExamProctorDashboard actions={headerActions} />;
   }
 
   return (

@@ -7,6 +7,10 @@ ultralytics
 insightface
 onnxruntime
 mediapipe
+face_recognition
+setuptools<81  # face_recognition_models still imports pkg_resources
+face_recognition_models @ git+https://github.com/ageitgey/face_recognition_models
+requests
 fastapi
 uvicorn
 pydantic

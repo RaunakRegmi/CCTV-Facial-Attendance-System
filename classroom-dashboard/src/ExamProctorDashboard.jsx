@@ -1,16 +1,17 @@
-import React, { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import { db } from "./firebase";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
-export default function ExamProctorDashboard() {
+export default function ExamProctorDashboard({ actions }) {
   const [violations, setViolations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedExam, setSelectedExam] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [activeAlert, setActiveAlert] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
+  const [updateError, setUpdateError] = useState(null);
 
   // Real-time Firestore listener for exam_violations
   useEffect(() => {
@@ -38,6 +39,16 @@ export default function ExamProctorDashboard() {
     return () => unsubscribe();
   }, []);
 
+  // Close the inspection modal with ESC
+  useEffect(() => {
+    if (!activeAlert) return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setActiveAlert(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeAlert]);
+
   // Extract unique Exam IDs for the filter dropdown
   const examIds = useMemo(() => {
     const ids = new Set(violations.map((v) => v.exam_id).filter(Boolean));
@@ -61,9 +72,11 @@ export default function ExamProctorDashboard() {
     const unreviewed = filteredViolations.filter(
       (v) => v.status === "Unreviewed",
     ).length;
-    const phones = filteredViolations.filter((v) =>
-      v.violation_type?.toLowerCase().includes("phone"),
-    ).length;
+    // "Contraband: Mobile Phone / Chit Paper / Smartwatch / Earbuds" from proctor_engine.py
+    const phones = filteredViolations.filter((v) => {
+      const type = v.violation_type?.toLowerCase() ?? "";
+      return type.startsWith("contraband") || type.includes("phone");
+    }).length;
     const gaze = filteredViolations.filter((v) =>
       v.violation_type?.toLowerCase().includes("gaze"),
     ).length;
@@ -73,6 +86,7 @@ export default function ExamProctorDashboard() {
   // Send status update through FastAPI write proxy
   const handleUpdateStatus = async (violationId, newStatus) => {
     setUpdatingId(violationId);
+    setUpdateError(null);
     try {
       const res = await fetch(
         `${API_URL}/api/exams/violations/${violationId}`,
@@ -89,6 +103,11 @@ export default function ExamProctorDashboard() {
       }
     } catch (err) {
       console.error("Status update error:", err);
+      setUpdateError(
+        err instanceof TypeError
+          ? `Can't reach the API at ${API_URL}. Is it running?`
+          : `Couldn't mark the alert as ${newStatus}. Please try again.`,
+      );
     } finally {
       setUpdatingId(null);
     }
@@ -118,6 +137,8 @@ export default function ExamProctorDashboard() {
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-zinc-100 font-sans p-6">
       <div className="max-w-7xl mx-auto space-y-6">
+        {actions && <div className="flex justify-end">{actions}</div>}
+
         {/* Header & Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-800 pb-5">
           <div>
@@ -157,6 +178,22 @@ export default function ExamProctorDashboard() {
             </select>
           </div>
         </div>
+
+        {updateError && (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-3 rounded-md border border-red-800/60 bg-red-950/50 px-4 py-2.5 text-sm text-red-300"
+          >
+            <span>{updateError}</span>
+            <button
+              type="button"
+              onClick={() => setUpdateError(null)}
+              className="text-xs text-red-400 hover:text-red-200"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Flat KPI Strip */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -252,6 +289,15 @@ export default function ExamProctorDashboard() {
                       </span>
                     </div>
 
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-xs font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">
+                        {item.student_name || "Unidentified Student"}
+                      </span>
+                      <span className="text-xs font-mono text-zinc-500">
+                        {item.student_id || "—"}
+                      </span>
+                    </div>
+
                     <h3 className="text-sm font-semibold text-white mt-2">
                       {item.violation_type}
                     </h3>
@@ -321,15 +367,29 @@ export default function ExamProctorDashboard() {
             </div>
 
             <div className="bg-black flex items-center justify-center max-h-[65vh] overflow-hidden">
-              <img
-                src={activeAlert.evidence_snapshot}
-                alt="Violation Evidence"
-                className="w-full h-auto object-contain"
-              />
+              {activeAlert.evidence_snapshot ? (
+                <img
+                  src={activeAlert.evidence_snapshot}
+                  alt="Violation Evidence"
+                  className="w-full h-auto max-h-[65vh] object-contain"
+                />
+              ) : (
+                <div className="py-24 text-sm text-zinc-600">
+                  No Snapshot Available
+                </div>
+              )}
             </div>
 
             <div className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-t border-zinc-800">
               <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">
+                    {activeAlert.student_name || "Unidentified Student"}
+                  </span>
+                  <span className="text-xs font-mono text-zinc-500">
+                    {activeAlert.student_id || "—"}
+                  </span>
+                </div>
                 <p className="text-sm text-zinc-200">{activeAlert.details}</p>
                 <p className="text-xs text-zinc-500">
                   Model Confidence:{" "}
@@ -345,7 +405,7 @@ export default function ExamProctorDashboard() {
                   onClick={() =>
                     handleUpdateStatus(activeAlert.id, "Dismissed")
                   }
-                  className="px-3.5 py-2 text-xs font-medium rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700"
+                  className="px-3.5 py-2 text-xs font-medium rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 disabled:opacity-50"
                 >
                   Dismiss False Positive
                 </button>
@@ -355,7 +415,7 @@ export default function ExamProctorDashboard() {
                   onClick={() =>
                     handleUpdateStatus(activeAlert.id, "Confirmed")
                   }
-                  className="px-3.5 py-2 text-xs font-medium rounded bg-red-600 hover:bg-red-500 text-white"
+                  className="px-3.5 py-2 text-xs font-medium rounded bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
                 >
                   Confirm Violation
                 </button>

@@ -6,7 +6,7 @@ through here so the Firestore rules can deny all client writes. The Admin SDK
 used below bypasses those rules.
 
 Run from the backend/ folder:
-    uvicorn api:app --reload --port 8000
+    uvicorn api:app --reload --port 8080
 
 Env:
     SERVICE_ACCOUNT_KEY  path to the key (default: backend/serviceAccountKey.json)
@@ -15,7 +15,7 @@ Env:
 
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import firebase_admin
 from fastapi import FastAPI, HTTPException, status
@@ -24,8 +24,6 @@ from firebase_admin import credentials, firestore
 from google.api_core.exceptions import AlreadyExists
 from google.cloud.firestore_v1.base_query import FieldFilter
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints
-from pydantic import BaseModel
-from firebase_admin import firestore
 from datetime import datetime, timezone
 
 KEY_PATH = Path(os.environ.get("SERVICE_ACCOUNT_KEY", Path(__file__).parent / "serviceAccountKey.json"))
@@ -84,6 +82,8 @@ class StudentIn(BaseModel):
 
 class ViolationCreate(BaseModel):
     exam_id: str
+    student_id: str = "UNIDENTIFIED"
+    student_name: str = "Unidentified Student"
     violation_type: str
     confidence: float
     details: str
@@ -98,7 +98,7 @@ app = FastAPI(title="Classroom Attendance Admin API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_methods=["POST", "DELETE"],
+    allow_methods=["POST", "PATCH", "DELETE"],
     allow_headers=["Content-Type"],
 )
 
@@ -140,12 +140,15 @@ def create_student(body: StudentIn):
     })
     return {"id": ref.id}
 
+# Plain `def`: the Firestore client blocks, so FastAPI runs these in its threadpool
 @app.post("/api/exams/violations")
-async def log_exam_violation(violation: ViolationCreate):
+def log_exam_violation(violation: ViolationCreate):
     try:
         doc_ref = db.collection("exam_violations").document()
         doc_ref.set({
             "exam_id": violation.exam_id,
+            "student_id": violation.student_id,
+            "student_name": violation.student_name,
             "violation_type": violation.violation_type,
             "confidence": violation.confidence,
             "details": violation.details,
@@ -158,12 +161,10 @@ async def log_exam_violation(violation: ViolationCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 class ViolationStatusUpdate(BaseModel):
-    status: str  # "Confirmed" or "Dismissed"
+    status: Literal["Confirmed", "Dismissed", "Unreviewed"]
 
 @app.patch("/api/exams/violations/{violation_id}")
-async def update_violation_status(violation_id: str, update: ViolationStatusUpdate):
-    if update.status not in ["Confirmed", "Dismissed", "Unreviewed"]:
-        raise HTTPException(status_code=400, detail="Invalid status value")
+def update_violation_status(violation_id: DocId, update: ViolationStatusUpdate):
     try:
         doc_ref = db.collection("exam_violations").document(violation_id)
         if not doc_ref.get().exists:
