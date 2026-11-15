@@ -64,3 +64,9 @@ ehthumbs.db
 Thumbs.db
 .vscode/
 .idea/
+
+# Contraband training data, run outputs, and model files
+backend/yolo_contraband/
+backend/runs/
+backend/*.pt
+backend/face_landmarker.task

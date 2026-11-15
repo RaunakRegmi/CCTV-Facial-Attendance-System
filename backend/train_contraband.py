@@ -7,8 +7,9 @@ Expected dataset layout (YOLO format, relative to backend/):
         images/train/*.jpg   labels/train/*.txt
         images/val/*.jpg     labels/val/*.txt
 
-Label each frame from capture_dataset.py (raw_frames/) with a YOLO
-annotation tool (e.g. CVAT, Label Studio, Roboflow) using these class IDs:
+Label frames from capture_dataset.py (raw_frames/) in Label Studio with
+these class names, export as YOLO to yolo_contraband/export.zip, then run
+split_dataset.py to build the layout above:
     0 cell_phone   1 chit_paper   2 smartwatch   3 earbuds
 
 Usage:
@@ -62,8 +63,8 @@ def check_dataset():
         if not images:
             raise SystemExit(
                 f"No images in {img_dir}.\n"
-                f"Annotate frames from yolo_contraband/raw_frames and export them in YOLO format "
-                f"to yolo_contraband/images/{{train,val}} and yolo_contraband/labels/{{train,val}}."
+                f"Label frames from yolo_contraband/raw_frames in Label Studio, export as YOLO to "
+                f"yolo_contraband/export.zip, then run: python split_dataset.py"
             )
         if not labels:
             raise SystemExit(f"No label .txt files in {lbl_dir}.")
