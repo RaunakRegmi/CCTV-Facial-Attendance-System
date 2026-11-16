@@ -1,10 +1,20 @@
 import { useEffect, useState, useMemo } from "react";
 import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
 import { db } from "./firebase";
+import { Badge, KpiCard, PageHeading } from "./ui";
+import {
+  btnPrimary,
+  btnPrimarySm,
+  btnSecondary,
+  btnSecondarySm,
+  cardClass,
+  labelClass,
+  selectClass,
+} from "./styles";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
-export default function ExamProctorDashboard({ actions }) {
+export default function ExamProctorDashboard() {
   const [violations, setViolations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedExam, setSelectedExam] = useState("ALL");
@@ -123,291 +133,305 @@ export default function ExamProctorDashboard({ actions }) {
     });
   };
 
-  const getStatusBadgeStyle = (status) => {
+  // Review status -> badge tone. A dismissed alert means the student was cleared.
+  const statusTone = (status) => {
     switch (status) {
       case "Confirmed":
-        return "bg-red-950/70 text-red-400 border-red-800/60";
+        return "danger";
       case "Dismissed":
-        return "bg-zinc-900 text-zinc-500 border-zinc-800";
+        return "success";
       default:
-        return "bg-amber-950/70 text-amber-400 border-amber-800/60";
+        return "warning";
     }
   };
 
+  // Contraband is a crimson alert; gaze / head-turn is an attention warning
+  const violationTone = (type) => {
+    const t = type?.toLowerCase() ?? "";
+    if (t.startsWith("contraband") || t.includes("phone")) return "danger";
+    if (t.includes("gaze")) return "warning";
+    return "neutral";
+  };
+
+  const isUnreviewed = (item) => !item.status || item.status === "Unreviewed";
+
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-zinc-100 font-sans p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {actions && <div className="flex justify-end">{actions}</div>}
+    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <PageHeading
+        eyebrow="Examination Integrity"
+        title="Exam Proctor Monitor"
+        description="Real-time AI anomaly feed with annotated frame evidence for invigilator review."
+      >
+        <span className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-800">
+          <span className="h-2 w-2 rounded-full bg-red-700" />
+          Live feed
+        </span>
+      </PageHeading>
 
-        {/* Header & Filters */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-800 pb-5">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <h1 className="text-xl font-semibold tracking-tight text-white">
-                Exam Proctor Monitor
-              </h1>
-            </div>
-            <p className="text-sm text-zinc-400 mt-1">
-              Real-time AI anomaly feed and annotated frame evidence
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <select
-              value={selectedExam}
-              onChange={(e) => setSelectedExam(e.target.value)}
-              className="bg-[#141414] border border-zinc-800 text-zinc-200 text-sm rounded-md px-3 py-2 focus:outline-none focus:border-zinc-600"
-            >
-              {examIds.map((id) => (
-                <option key={id} value={id}>
-                  {id === "ALL" ? "All Exam Sessions" : id}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-[#141414] border border-zinc-800 text-zinc-200 text-sm rounded-md px-3 py-2 focus:outline-none focus:border-zinc-600"
-            >
-              <option value="ALL">All Statuses</option>
-              <option value="Unreviewed">Unreviewed</option>
-              <option value="Confirmed">Confirmed</option>
-              <option value="Dismissed">Dismissed</option>
-            </select>
-          </div>
-        </div>
-
-        {updateError && (
-          <div
-            role="alert"
-            className="flex items-center justify-between gap-3 rounded-md border border-red-800/60 bg-red-950/50 px-4 py-2.5 text-sm text-red-300"
+      {/* Filters */}
+      <div className={`${cardClass} mb-6 flex flex-wrap items-end gap-4 px-5 py-4`}>
+        <label className="block">
+          <span className={`${labelClass} mb-1.5 block`}>Exam session</span>
+          <select
+            value={selectedExam}
+            onChange={(e) => setSelectedExam(e.target.value)}
+            className={`${selectClass} min-w-[12rem]`}
           >
-            <span>{updateError}</span>
-            <button
-              type="button"
-              onClick={() => setUpdateError(null)}
-              className="text-xs text-red-400 hover:text-red-200"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
+            {examIds.map((id) => (
+              <option key={id} value={id}>
+                {id === "ALL" ? "All Exam Sessions" : id}
+              </option>
+            ))}
+          </select>
+        </label>
 
-        {/* Flat KPI Strip */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-[#141414] border border-zinc-800/90 rounded-lg p-4">
-            <p className="text-xs uppercase tracking-wider text-zinc-500">
-              Total Flags
-            </p>
-            <p className="text-2xl font-semibold text-white mt-1">
-              {stats.total}
-            </p>
-          </div>
-          <div className="bg-[#141414] border border-zinc-800/90 rounded-lg p-4">
-            <p className="text-xs uppercase tracking-wider text-zinc-500">
-              Pending Review
-            </p>
-            <p className="text-2xl font-semibold text-amber-400 mt-1">
-              {stats.unreviewed}
-            </p>
-          </div>
-          <div className="bg-[#141414] border border-zinc-800/90 rounded-lg p-4">
-            <p className="text-xs uppercase tracking-wider text-zinc-500">
-              Device Detections
-            </p>
-            <p className="text-2xl font-semibold text-red-400 mt-1">
-              {stats.phones}
-            </p>
-          </div>
-          <div className="bg-[#141414] border border-zinc-800/90 rounded-lg p-4">
-            <p className="text-xs uppercase tracking-wider text-zinc-500">
-              Gaze Anomalies
-            </p>
-            <p className="text-2xl font-semibold text-zinc-200 mt-1">
-              {stats.gaze}
-            </p>
-          </div>
+        <label className="block">
+          <span className={`${labelClass} mb-1.5 block`}>Review status</span>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className={`${selectClass} min-w-[10rem]`}
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="Unreviewed">Unreviewed</option>
+            <option value="Confirmed">Confirmed</option>
+            <option value="Dismissed">Dismissed</option>
+          </select>
+        </label>
+
+        <p className="ml-auto text-sm text-slate-600 tabular-nums">
+          Showing {filteredViolations.length} of {violations.length} alerts
+        </p>
+      </div>
+
+      {updateError && (
+        <div
+          role="alert"
+          className="mb-6 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-800"
+        >
+          <span>{updateError}</span>
+          <button
+            type="button"
+            onClick={() => setUpdateError(null)}
+            className="text-xs font-semibold text-red-700 underline-offset-2 hover:underline"
+          >
+            Dismiss
+          </button>
         </div>
+      )}
 
-        {/* Violations Feed */}
-        {loading ? (
-          <div className="bg-[#141414] border border-zinc-800 rounded-lg p-12 text-center text-zinc-500 text-sm">
-            Connecting to live proctoring stream...
-          </div>
-        ) : filteredViolations.length === 0 ? (
-          <div className="bg-[#141414] border border-zinc-800 rounded-lg p-12 text-center">
-            <p className="text-zinc-300 font-medium">No anomalies recorded</p>
-            <p className="text-zinc-500 text-sm mt-1">
-              Active alerts from proctor_engine.py will appear here
-              automatically.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredViolations.map((item) => (
-              <div
-                key={item.id}
-                className="bg-[#141414] border border-zinc-800 hover:border-zinc-700 transition-colors rounded-lg overflow-hidden flex flex-col"
+      {/* KPI summary */}
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <KpiCard label="Total Flags" accent="slate">
+          <p className="text-3xl font-bold text-slate-900 tabular-nums">
+            {stats.total}
+          </p>
+        </KpiCard>
+        <KpiCard label="Pending Review" accent="amber">
+          <p className="text-3xl font-bold text-slate-900 tabular-nums">
+            {stats.unreviewed}
+          </p>
+        </KpiCard>
+        <KpiCard label="Device Detections" accent="crimson">
+          <p className="text-3xl font-bold text-slate-900 tabular-nums">
+            {stats.phones}
+          </p>
+        </KpiCard>
+        <KpiCard label="Gaze Anomalies" accent="amber">
+          <p className="text-3xl font-bold text-slate-900 tabular-nums">
+            {stats.gaze}
+          </p>
+        </KpiCard>
+      </div>
+
+      {/* Violations feed */}
+      {loading ? (
+        <div className={`${cardClass} p-12 text-center text-sm text-slate-500`}>
+          Connecting to live proctoring stream…
+        </div>
+      ) : filteredViolations.length === 0 ? (
+        <div className={`${cardClass} p-12 text-center`}>
+          <p className="font-semibold text-slate-900">No anomalies recorded</p>
+          <p className="mt-1 text-sm text-slate-600">
+            Alerts from proctor_engine.py will appear here automatically.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredViolations.map((item) => (
+            <article
+              key={item.id}
+              className={`${cardClass} flex flex-col overflow-hidden transition-shadow hover:shadow-sm ${
+                isUnreviewed(item) ? "border-l-4 border-l-red-700" : ""
+              }`}
+            >
+              {/* Evidence thumbnail */}
+              <button
+                type="button"
+                onClick={() => setActiveAlert(item)}
+                className="group relative aspect-video w-full overflow-hidden border-b border-slate-200 bg-slate-100 text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-red-700"
+                aria-label={`Inspect evidence for ${item.student_name || "Unidentified Student"}`}
               >
-                {/* Base64 Evidence Thumbnail */}
-                <button
-                  type="button"
-                  onClick={() => setActiveAlert(item)}
-                  className="relative group w-full aspect-video bg-black overflow-hidden text-left focus:outline-none"
-                >
-                  {item.evidence_snapshot ? (
-                    <img
-                      src={item.evidence_snapshot}
-                      alt={item.violation_type}
-                      className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-xs text-zinc-600">
-                      No Snapshot Available
-                    </div>
-                  )}
-                  <span className="absolute bottom-2 right-2 bg-black/80 text-zinc-200 text-[11px] px-2 py-0.5 rounded border border-zinc-700">
-                    Inspect Frame
-                  </span>
-                </button>
+                {item.evidence_snapshot ? (
+                  <img
+                    src={item.evidence_snapshot}
+                    alt={item.violation_type}
+                    className="h-full w-full object-cover transition-opacity group-hover:opacity-90"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">
+                    No Snapshot Available
+                  </div>
+                )}
+                <span className="absolute bottom-2 right-2 rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 shadow-xs">
+                  Inspect Frame
+                </span>
+              </button>
 
-                {/* Alert Metadata */}
-                <div className="p-4 flex-1 flex flex-col justify-between space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-mono text-zinc-400">
-                        {item.exam_id} • {formatTime(item.timestamp)}
-                      </span>
-                      <span
-                        className={`text-[11px] font-medium px-2 py-0.5 rounded border ${getStatusBadgeStyle(
-                          item.status,
-                        )}`}
-                      >
-                        {item.status || "Unreviewed"}
-                      </span>
-                    </div>
-
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-xs font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">
-                        {item.student_name || "Unidentified Student"}
-                      </span>
-                      <span className="text-xs font-mono text-zinc-500">
-                        {item.student_id || "—"}
-                      </span>
-                    </div>
-
-                    <h3 className="text-sm font-semibold text-white mt-2">
-                      {item.violation_type}
-                    </h3>
-                    <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
-                      {item.details}
-                    </p>
+              {/* Alert metadata */}
+              <div className="flex flex-1 flex-col justify-between gap-4 p-4">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-xs font-medium text-slate-500 tabular-nums">
+                      {item.exam_id} · {formatTime(item.timestamp)}
+                    </span>
+                    <Badge tone={statusTone(item.status)}>
+                      {item.status || "Unreviewed"}
+                    </Badge>
                   </div>
 
-                  {/* Quick Review Actions */}
-                  <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between gap-2">
-                    <span className="text-xs text-zinc-500">
-                      Conf: {Math.round((item.confidence || 0) * 100)}%
+                  <p className="mt-3 truncate text-sm font-semibold text-slate-900">
+                    {item.student_name || "Unidentified Student"}
+                  </p>
+                  <p className="text-xs text-slate-500 tabular-nums">
+                    ID {item.student_id || "—"}
+                  </p>
+
+                  <div className="mt-3">
+                    <Badge tone={violationTone(item.violation_type)} dot>
+                      {item.violation_type}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-xs text-slate-600">
+                    {item.details}
+                  </p>
+                </div>
+
+                {/* Quick review actions */}
+                <div className="flex items-center justify-between gap-2 border-t border-slate-200 pt-3">
+                  <span className="text-xs text-slate-600">
+                    Confidence{" "}
+                    <span className="font-semibold text-slate-900 tabular-nums">
+                      {Math.round((item.confidence || 0) * 100)}%
                     </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={updatingId === item.id}
-                        onClick={() => handleUpdateStatus(item.id, "Dismissed")}
-                        className="px-2.5 py-1 text-xs rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 disabled:opacity-50"
-                      >
-                        Dismiss
-                      </button>
-                      <button
-                        type="button"
-                        disabled={updatingId === item.id}
-                        onClick={() => handleUpdateStatus(item.id, "Confirmed")}
-                        className="px-2.5 py-1 text-xs rounded bg-red-950 hover:bg-red-900 text-red-200 border border-red-800 disabled:opacity-50"
-                      >
-                        Confirm
-                      </button>
-                    </div>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={updatingId === item.id}
+                      onClick={() => handleUpdateStatus(item.id, "Dismissed")}
+                      className={btnSecondarySm}
+                    >
+                      Dismiss
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updatingId === item.id}
+                      onClick={() => handleUpdateStatus(item.id, "Confirmed")}
+                      className={btnPrimarySm}
+                    >
+                      Confirm
+                    </button>
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            </article>
+          ))}
+        </div>
+      )}
 
-      {/* Fullscreen Evidence Inspection Modal */}
+      {/* Evidence inspection modal */}
       {activeAlert && (
         <div
-          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"
           onClick={() => setActiveAlert(null)}
         >
           <div
-            className="bg-[#141414] border border-zinc-800 rounded-lg max-w-3xl w-full overflow-hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="evidence-title"
+            className="w-full max-w-3xl overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800">
-              <div>
-                <h2 className="text-base font-semibold text-white">
+            <div className="flex items-start justify-between gap-4 border-b border-t-4 border-slate-200 border-t-red-700 px-5 py-4">
+              <div className="min-w-0">
+                <p className={labelClass}>Evidence Review</p>
+                <h2
+                  id="evidence-title"
+                  className="mt-1 text-lg font-semibold text-slate-900"
+                >
                   {activeAlert.violation_type}
                 </h2>
-                <p className="text-xs text-zinc-400">
-                  {activeAlert.exam_id} •{" "}
+                <p className="text-xs text-slate-600 tabular-nums">
+                  {activeAlert.exam_id} ·{" "}
                   {new Date(activeAlert.timestamp).toLocaleString()}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveAlert(null)}
-                className="text-zinc-400 hover:text-white text-sm px-2 py-1"
+                className={btnSecondarySm}
               >
-                Close [ESC]
+                Close (Esc)
               </button>
             </div>
 
-            <div className="bg-black flex items-center justify-center max-h-[65vh] overflow-hidden">
+            <div className="flex max-h-[65vh] items-center justify-center overflow-hidden border-b border-slate-200 bg-slate-100">
               {activeAlert.evidence_snapshot ? (
                 <img
                   src={activeAlert.evidence_snapshot}
                   alt="Violation Evidence"
-                  className="w-full h-auto max-h-[65vh] object-contain"
+                  className="h-auto max-h-[65vh] w-full object-contain"
                 />
               ) : (
-                <div className="py-24 text-sm text-zinc-600">
+                <div className="py-24 text-sm text-slate-500">
                   No Snapshot Available
                 </div>
               )}
             </div>
 
-            <div className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-t border-zinc-800">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-zinc-700">
+            <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-900">
                     {activeAlert.student_name || "Unidentified Student"}
                   </span>
-                  <span className="text-xs font-mono text-zinc-500">
-                    {activeAlert.student_id || "—"}
+                  <span className="text-xs text-slate-500 tabular-nums">
+                    ID {activeAlert.student_id || "—"}
                   </span>
+                  <Badge tone={statusTone(activeAlert.status)}>
+                    {activeAlert.status || "Unreviewed"}
+                  </Badge>
                 </div>
-                <p className="text-sm text-zinc-200">{activeAlert.details}</p>
-                <p className="text-xs text-zinc-500">
-                  Model Confidence:{" "}
-                  {Math.round((activeAlert.confidence || 0) * 100)}% • Current
-                  Status: {activeAlert.status}
+                <p className="text-sm text-slate-700">{activeAlert.details}</p>
+                <p className="text-xs text-slate-600">
+                  Model confidence{" "}
+                  <span className="font-semibold text-slate-900 tabular-nums">
+                    {Math.round((activeAlert.confidence || 0) * 100)}%
+                  </span>
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   disabled={updatingId === activeAlert.id}
                   onClick={() =>
                     handleUpdateStatus(activeAlert.id, "Dismissed")
                   }
-                  className="px-3.5 py-2 text-xs font-medium rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 disabled:opacity-50"
+                  className={btnSecondary}
                 >
-                  Dismiss False Positive
+                  Dismiss / False Alarm
                 </button>
                 <button
                   type="button"
@@ -415,7 +439,7 @@ export default function ExamProctorDashboard({ actions }) {
                   onClick={() =>
                     handleUpdateStatus(activeAlert.id, "Confirmed")
                   }
-                  className="px-3.5 py-2 text-xs font-medium rounded bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
+                  className={btnPrimary}
                 >
                   Confirm Violation
                 </button>
@@ -424,6 +448,6 @@ export default function ExamProctorDashboard({ actions }) {
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }

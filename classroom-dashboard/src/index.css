@@ -2,10 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Native controls (scrollbars, <select> menus, date pickers) follow the theme */
+/* Light institutional theme: native controls (scrollbars, <select> menus) render light */
 :root {
   color-scheme: light;
 }
-:root.dark {
-  color-scheme: dark;
+
+body {
+  @apply bg-slate-50 font-sans text-slate-900 antialiased;
 }

@@ -18,7 +18,15 @@ import {
 } from "recharts";
 import AdminPanel from "./AdminPanel";
 import { db } from "./firebase";
-import { CHART_COLORS, useTheme } from "./theme";
+import { CHART_COLORS } from "./theme";
+import { Badge, KpiCard, PageHeading } from "./ui";
+import {
+  btnPrimary,
+  btnSecondary,
+  cardClass,
+  labelClass,
+  selectClass,
+} from "./styles";
 import ExamProctorDashboard from "./ExamProctorDashboard";
 
 // ---------------------------------------------------------------------------
@@ -226,170 +234,167 @@ function useNow(intervalMs = 15_000) {
 
 const VIEWS = [
   { id: "dashboard", label: "Live Dashboard" },
-  { id: "admin", label: "Admin Panel" },
   { id: "proctor", label: "Exam Proctor" },
+  { id: "admin", label: "Student Roster" },
 ];
 
-function ViewTabs({ view, onChange }) {
+const PORTAL_TITLE = "Academic Analytics & Exam Proctoring Portal";
+const PRODUCT_NAME = "Attendly";
+
+// Crest shown until public/college-logo.png exists (or if it fails to load)
+function FallbackCrest() {
   return (
-    <div
-      role="tablist"
-      className="inline-flex rounded-lg bg-white dark:bg-gray-800 p-1 text-sm ring-1 ring-slate-200 dark:ring-gray-700"
+    <svg
+      className="h-10 w-10 shrink-0"
+      viewBox="0 0 40 40"
+      role="img"
+      aria-label="College crest"
     >
-      {VIEWS.map((v) => {
-        const selected = v.id === view;
-        return (
-          <button
-            key={v.id}
-            role="tab"
-            aria-selected={selected}
-            onClick={() => onChange(v.id)}
-            className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
-              selected
-                ? "bg-slate-100 dark:bg-gray-700 text-slate-900 dark:text-white shadow-sm"
-                : "text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200"
-            }`}
-          >
-            {v.label}
-          </button>
-        );
-      })}
-    </div>
+      <path
+        d="M20 3 6 8v11c0 8.6 5.9 15.4 14 18 8.1-2.6 14-9.4 14-18V8L20 3Z"
+        fill="#B91C1C"
+      />
+      <path
+        d="m20 12-9 4 9 4 9-4-9-4Zm-5.5 6.6v4.1c0 1.6 2.5 3.3 5.5 3.3s5.5-1.7 5.5-3.3v-4.1L20 21l-5.5-2.4Z"
+        fill="#FFFFFF"
+      />
+    </svg>
   );
 }
 
-function ThemeToggle({ isDarkMode, onToggle }) {
-  const label = isDarkMode ? "Switch to light mode" : "Switch to dark mode";
+function CollegeLogo() {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <FallbackCrest />;
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-label={label}
-      title={label}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-500 ring-1 ring-slate-200 transition-colors hover:text-slate-900 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-700 dark:hover:text-white"
-    >
-      {isDarkMode ? (
-        // Sun: shown in dark mode, switches to light
-        <svg
-          className="h-5 w-5"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M10 2a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 2ZM10 15a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 15ZM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM15.657 5.404a.75.75 0 1 0-1.06-1.06l-1.061 1.06a.75.75 0 0 0 1.06 1.06l1.06-1.06ZM6.464 14.596a.75.75 0 1 0-1.06-1.06l-1.06 1.06a.75.75 0 0 0 1.06 1.06l1.06-1.06ZM18 10a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 18 10ZM5 10a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 5 10ZM14.596 15.657a.75.75 0 0 0 1.06-1.06l-1.06-1.061a.75.75 0 1 0-1.06 1.06l1.06 1.06ZM5.404 6.464a.75.75 0 0 0 1.06-1.06l-1.06-1.06a.75.75 0 1 0-1.061 1.06l1.06 1.06Z" />
-        </svg>
-      ) : (
-        // Moon: shown in light mode, switches to dark
-        <svg
-          className="h-5 w-5"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path
-            fillRule="evenodd"
-            d="M7.455 2.004a.75.75 0 0 1 .26.77 7 7 0 0 0 9.958 7.967.75.75 0 0 1 1.067.853A8.5 8.5 0 1 1 6.647 1.921a.75.75 0 0 1 .808.083Z"
-            clipRule="evenodd"
-          />
-        </svg>
-      )}
-    </button>
+    <img
+      src="/college-logo.png"
+      alt="College Logo"
+      className="h-12 w-auto shrink-0 object-contain"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function PortalHeader({ view, onChange, now }) {
+  const today = new Date(now).toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  return (
+    <header className="border-b border-t-4 border-slate-200 border-t-red-700 bg-white">
+      <div className="flex items-center justify-between gap-4 px-4 pt-3 sm:px-6 lg:px-8">
+        <div className="flex min-w-0 items-center gap-3">
+          <CollegeLogo />
+          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 border-l border-slate-200 pl-3 text-sm font-semibold tracking-tight text-slate-900 sm:text-base">
+            <span>{PORTAL_TITLE}</span>
+            <span className="font-bold text-red-700">{PRODUCT_NAME}</span>
+          </p>
+        </div>
+        <p className="hidden shrink-0 text-xs font-medium text-slate-600 lg:block">
+          {today}
+        </p>
+      </div>
+
+      <nav aria-label="Portal sections" className="mt-2 px-4 sm:px-6 lg:px-8">
+        <div role="tablist" className="flex gap-6 overflow-x-auto">
+          {VIEWS.map((v) => {
+            const selected = v.id === view;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => onChange(v.id)}
+                className={`whitespace-nowrap border-b-2 px-1 pb-2.5 pt-1 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 ${
+                  selected
+                    ? "border-red-700 font-semibold text-red-700"
+                    : "border-transparent font-medium text-slate-600 hover:border-slate-300 hover:text-slate-900"
+                }`}
+              >
+                {v.label}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    </header>
   );
 }
 
 function ActiveDot({ active }) {
-  if (!active)
-    return (
-      <span className="h-2 w-2 rounded-full bg-slate-300 dark:bg-gray-600" />
-    );
   return (
-    <span className="relative flex h-2 w-2">
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-    </span>
+    <span
+      className={`h-2 w-2 shrink-0 rounded-full ${active ? "bg-emerald-600" : "bg-slate-300"}`}
+    />
   );
 }
 
-function Sidebar({
-  classes,
-  classesStatus,
-  selectedClass,
-  onSelect,
-  onExport,
-  now,
-}) {
+function Sidebar({ classes, classesStatus, selectedClass, onSelect, now }) {
   return (
-    <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 md:flex">
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-gray-700 px-6 py-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-          A
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-slate-900 dark:text-white">
-            Attendly
-          </p>
-          <p className="text-xs text-slate-500 dark:text-gray-400">
-            Attendance Analytics
-          </p>
-        </div>
+    <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white md:sticky md:top-0 md:flex md:h-screen md:flex-col md:self-start">
+      <div className="border-b border-slate-200 px-5 py-4">
+        <p className={labelClass}>My Classes</p>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
-        <p className="px-3 pb-2 text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-gray-500">
-          My Classes
-        </p>
-
+      <nav className="flex-1 overflow-y-auto py-2" aria-label="Classes">
         {classesStatus === "loading" && (
           <ul className="space-y-1" aria-hidden="true">
             {[0, 1, 2].map((i) => (
-              <li key={i} className="space-y-2 rounded-lg px-3 py-3">
-                <div className="h-3 w-24 animate-pulse rounded bg-slate-100 dark:bg-gray-700" />
-                <div className="h-2.5 w-32 animate-pulse rounded bg-slate-100 dark:bg-gray-700" />
+              <li key={i} className="space-y-2 px-5 py-3">
+                <div className="h-3 w-24 animate-pulse rounded bg-slate-100" />
+                <div className="h-2.5 w-32 animate-pulse rounded bg-slate-100" />
               </li>
             ))}
           </ul>
         )}
 
         {classesStatus === "error" && (
-          <p className="px-3 text-sm text-red-600 dark:text-red-400">
+          <p className="px-5 py-2 text-sm text-red-700">
             Couldn't load classes.
           </p>
         )}
 
         {classesStatus === "ready" && classes.length === 0 && (
-          <p className="px-3 text-sm text-slate-500 dark:text-gray-400">
-            No classes yet. Create one in the Admin Panel.
+          <p className="px-5 py-2 text-sm text-slate-600">
+            No classes yet. Create one under Student Roster.
           </p>
         )}
 
-        <ul className="space-y-1">
+        <ul>
           {classes.map((c) => {
             const active = c.id === selectedClass;
             const live = isActive(c, now);
             return (
               <li key={c.id}>
                 <button
+                  type="button"
                   onClick={() => onSelect(c.id)}
-                  className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors ${
+                  aria-current={active ? "true" : undefined}
+                  className={`block w-full border-l-2 px-5 py-3 text-left transition-colors ${
                     active
-                      ? "bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-200"
-                      : "text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-700/50"
+                      ? "border-red-700 bg-red-50"
+                      : "border-transparent hover:bg-slate-50"
                   }`}
                 >
                   <span className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold">{c.id}</span>
+                    <span
+                      className={`text-sm font-semibold ${active ? "text-red-800" : "text-slate-900"}`}
+                    >
+                      {c.id}
+                    </span>
                     {live && (
-                      <span className="rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-600/20 dark:ring-emerald-500/30">
+                      <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-800">
                         Active
                       </span>
                     )}
                   </span>
-                  <span
-                    className={`block truncate text-xs ${active ? "text-indigo-500 dark:text-indigo-300" : "text-slate-500 dark:text-gray-400"}`}
-                  >
+                  <span className="block truncate text-xs text-slate-600">
                     {c.name}
                   </span>
-                  <span className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-gray-500">
+                  <span className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500 tabular-nums">
                     <ActiveDot active={live} />
                     <span title={c.lastActive?.toLocaleString()}>
                       Started {formatLastActive(c.lastActive, now)}
@@ -401,25 +406,6 @@ function Sidebar({
           })}
         </ul>
       </nav>
-
-      <div className="space-y-2 border-t border-slate-200 dark:border-gray-700 p-4">
-        <button
-          onClick={() => onExport("report")}
-          disabled={!selectedClass}
-          title="Every attendance log for this class: timestamp, student, status, attention"
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <DownloadIcon /> Export Report
-        </button>
-        <button
-          onClick={() => onExport("roster")}
-          title="One row per student: status, arrival time, last seen"
-          disabled={!selectedClass}
-          className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-700/50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <DownloadIcon /> Export Roster
-        </button>
-      </div>
     </aside>
   );
 }
@@ -429,7 +415,6 @@ function MobileClassPicker({
   classesStatus,
   selectedClass,
   onSelect,
-  onExport,
   now,
 }) {
   const placeholder =
@@ -439,12 +424,16 @@ function MobileClassPicker({
         ? "Couldn't load classes"
         : "No classes yet";
   return (
-    <div className="mb-6 flex flex-wrap items-center gap-2 md:hidden">
+    <div className="mb-6 md:hidden">
+      <label className={`${labelClass} mb-1.5 block`} htmlFor="mobile-class">
+        Class
+      </label>
       <select
+        id="mobile-class"
         value={selectedClass ?? ""}
         onChange={(e) => onSelect(e.target.value)}
         disabled={classes.length === 0}
-        className="flex-1 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-slate-800 dark:text-gray-100 disabled:text-slate-400 dark:disabled:text-gray-500"
+        className={`${selectClass} w-full`}
       >
         {classes.length === 0 && <option value="">{placeholder}</option>}
         {classes.map((c) => (
@@ -454,13 +443,6 @@ function MobileClassPicker({
           </option>
         ))}
       </select>
-      <button
-        onClick={() => onExport("report")}
-        disabled={!selectedClass}
-        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-      >
-        Export Report
-      </button>
     </div>
   );
 }
@@ -474,28 +456,29 @@ function NoClassSelected({ classesStatus, error, onOpenAdmin }) {
     },
     ready: {
       title: "No classes yet",
-      body: "Create a class in the Admin Panel, or start the engine with a class ID:",
+      body: "Create a class under Student Roster, or start the engine with a class ID:",
     },
   }[classesStatus];
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <div className="max-w-md rounded-xl border border-dashed border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-8 text-center shadow-sm">
-        <h1 className="text-lg font-semibold">{content.title}</h1>
+      <div className={`${cardClass} max-w-md p-8 text-center`}>
+        <h1 className="text-lg font-semibold text-slate-900">
+          {content.title}
+        </h1>
         {content.body && (
-          <p className="mt-2 text-sm text-slate-500 dark:text-gray-400">
-            {content.body}
-          </p>
+          <p className="mt-2 text-sm text-slate-600">{content.body}</p>
         )}
         {classesStatus === "ready" && (
           <>
             <button
+              type="button"
               onClick={onOpenAdmin}
-              className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500"
+              className={`${btnPrimary} mt-4`}
             >
-              Open Admin Panel
+              Open Student Roster
             </button>
-            <pre className="mt-4 overflow-x-auto rounded-lg bg-gray-950 px-4 py-3 text-left text-xs text-gray-100">
+            <pre className="mt-4 overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-left font-mono text-xs text-slate-800">
               python attendly_engine.py --class-id AI-101 --class-name
               "Introduction to AI"
             </pre>
@@ -506,61 +489,29 @@ function NoClassSelected({ classesStatus, error, onOpenAdmin }) {
   );
 }
 
-function StatCard({ label, children, footnote }) {
-  return (
-    <div className="rounded-xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm">
-      <p className="text-sm font-medium text-slate-500 dark:text-gray-400">
-        {label}
-      </p>
-      <div className="mt-2">{children}</div>
-      {footnote && (
-        <p className="mt-2 text-xs text-slate-400 dark:text-gray-500">
-          {footnote}
-        </p>
-      )}
-    </div>
-  );
-}
-
-const STATUS_STYLES = {
-  Present: {
-    badge:
-      "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-600/20 dark:ring-emerald-500/30",
-    dot: "bg-emerald-500",
-  },
-  Late: {
-    badge:
-      "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-600/20 dark:ring-amber-500/30",
-    dot: "bg-amber-500",
-  },
-  Absent: {
-    badge:
-      "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 ring-red-600/20 dark:ring-red-500/30",
-    dot: "bg-red-500",
-  },
+// Attendance status -> semantic badge tone
+const STATUS_TONES = {
+  Present: "success",
+  Late: "warning",
+  Absent: "danger",
 };
 
 function StatusBadge({ status }) {
-  const style = STATUS_STYLES[status] ?? STATUS_STYLES.Present;
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${style.badge}`}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} /> {status}
-    </span>
+    <Badge tone={STATUS_TONES[status] ?? "success"} dot>
+      {status}
+    </Badge>
   );
 }
 
 function AttentionTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm shadow-md">
-      <p className="text-xs text-slate-500 dark:text-gray-400">{label}</p>
-      <p className="font-semibold text-slate-900 dark:text-white">
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm">
+      <p className="text-xs text-slate-500 tabular-nums">{label}</p>
+      <p className="font-semibold text-slate-900 tabular-nums">
         {payload[0].value}
-        <span className="ml-1 font-normal text-slate-500 dark:text-gray-400">
-          attention
-        </span>
+        <span className="ml-1 font-normal text-slate-600">attention</span>
       </p>
     </div>
   );
@@ -586,8 +537,7 @@ function DownloadIcon() {
 
 export default function TeacherDashboard() {
   const now = useNow();
-  const [isDarkMode, setIsDarkMode] = useTheme();
-  const chart = CHART_COLORS[isDarkMode ? "dark" : "light"];
+  const chart = CHART_COLORS;
   const [view, setView] = useState("dashboard");
   const [selectedClass, setSelectedClass] = useState(null);
   const [filter, setFilter] = useState("All");
@@ -786,322 +736,331 @@ export default function TeacherDashboard() {
         .join(" · ")
     : null;
 
-  // Top-right controls, shared by both views
-  const headerActions = (
-    <div className="flex items-center gap-2">
-      <ViewTabs view={view} onChange={setView} />
-      <ThemeToggle
-        isDarkMode={isDarkMode}
-        onToggle={() => setIsDarkMode((d) => !d)}
-      />
-    </div>
-  );
-
+  let page;
   if (view === "admin") {
-    return (
-      <AdminPanel
-        classes={classes}
-        classesStatus={classesFeed.status}
-        actions={headerActions}
-      />
+    page = <AdminPanel classes={classes} classesStatus={classesFeed.status} />;
+  } else if (view === "proctor") {
+    page = <ExamProctorDashboard />;
+  } else {
+    page = (
+      <div className="md:flex">
+        <Sidebar
+          classes={classes}
+          classesStatus={classesFeed.status}
+          selectedClass={classId}
+          onSelect={setSelectedClass}
+          now={now}
+        />
+
+        <main className="min-w-0 flex-1">
+          <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            <MobileClassPicker
+              classes={classes}
+              classesStatus={classesFeed.status}
+              selectedClass={classId}
+              onSelect={setSelectedClass}
+              now={now}
+            />
+
+            {!classInfo ? (
+              <NoClassSelected
+                classesStatus={classesFeed.status}
+                error={classesFeed.error}
+                onOpenAdmin={() => setView("admin")}
+              />
+            ) : (
+              <>
+                <PageHeading
+                  eyebrow={classInfo.id}
+                  title={classInfo.name}
+                  description={
+                    <span title={classInfo.lastActive?.toLocaleString()}>
+                      {classMeta}
+                    </span>
+                  }
+                >
+                  {isActive(classInfo, now) && (
+                    <span className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-800">
+                      <span className="h-2 w-2 rounded-full bg-red-700" />
+                      Live session
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleExport("roster")}
+                    disabled={!classId}
+                    title="One row per student: status, arrival time, last seen"
+                    className={btnSecondary}
+                  >
+                    <DownloadIcon /> Export Roster (CSV)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExport("report")}
+                    disabled={!classId}
+                    title="Every attendance log for this class: timestamp, student, status, attention"
+                    className={btnPrimary}
+                  >
+                    <DownloadIcon /> Export Report (CSV)
+                  </button>
+                </PageHeading>
+
+                {/* Top row: metrics */}
+                <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <KpiCard
+                    label="Total Present"
+                    footnote={`${roster.length - presentCount} absent · ${lateCount} late`}
+                  >
+                    <p className="text-3xl font-bold text-slate-900 tabular-nums">
+                      {presentCount}
+                      <span className="text-lg font-medium text-slate-400">
+                        /{roster.length}
+                      </span>
+                    </p>
+                    <div className="mt-3 h-1.5 w-full rounded-full bg-slate-100">
+                      <div
+                        className="h-1.5 rounded-full bg-emerald-600"
+                        style={{
+                          width: `${roster.length ? (presentCount / roster.length) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                  </KpiCard>
+
+                  <KpiCard
+                    label="Average Class Attention"
+                    footnote="Mean across session so far"
+                  >
+                    <p className="text-3xl font-bold text-slate-900 tabular-nums">
+                      {avgAttention}%
+                    </p>
+                    <div className="mt-3 h-1.5 w-full rounded-full bg-slate-100">
+                      <div
+                        className="h-1.5 rounded-full bg-slate-700"
+                        style={{ width: `${avgAttention}%` }}
+                      />
+                    </div>
+                  </KpiCard>
+
+                  <KpiCard
+                    label="System Status"
+                    accent={error ? "crimson" : "emerald"}
+                    footnote={
+                      error
+                        ? (error.code ?? "Listener error")
+                        : `Firestore live · last log ${lastSync ?? "—"}`
+                    }
+                  >
+                    {error ? (
+                      <p className="flex items-center gap-2 text-lg font-semibold text-red-700">
+                        <svg
+                          className="h-5 w-5"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                        Connection Lost
+                      </p>
+                    ) : (
+                      <p className="flex items-center gap-2 text-lg font-semibold text-emerald-700">
+                        <svg
+                          className="h-5 w-5"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                        Pose Analytics Active
+                      </p>
+                    )}
+                    <p className="mt-2 text-sm text-slate-600 tabular-nums">
+                      {loading ? "Connecting…" : `${logs.length} logs received`}
+                    </p>
+                  </KpiCard>
+                </section>
+
+                {/* Middle row: attention chart */}
+                <section className={`${cardClass} mt-6`}>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-200 px-5 py-4">
+                    <div>
+                      <h2 className="text-base font-semibold text-slate-900">
+                        Attention Score
+                      </h2>
+                      <p className="text-sm text-slate-600">
+                        Class-wide engagement, averaged per minute
+                      </p>
+                    </div>
+                    <p className="flex items-center gap-2 text-xs text-slate-500">
+                      <span className="w-5 border-t-2 border-dashed border-slate-700" />
+                      Session average
+                    </p>
+                  </div>
+                  <div className="h-72 w-full p-5">
+                    {attention.length === 0 ? (
+                      <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                        {loading
+                          ? "Loading attention data…"
+                          : "No attention data yet"}
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={attention}
+                          margin={{ top: 8, right: 16, bottom: 0, left: -8 }}
+                        >
+                          <CartesianGrid stroke={chart.grid} vertical={false} />
+                          <XAxis
+                            dataKey="time"
+                            tick={{ fontSize: 12, fill: chart.tick }}
+                            tickLine={false}
+                            axisLine={{ stroke: chart.axis }}
+                            interval="preserveStartEnd"
+                            minTickGap={24}
+                          />
+                          <YAxis
+                            domain={[0, 100]}
+                            ticks={[0, 25, 50, 75, 100]}
+                            tick={{ fontSize: 12, fill: chart.tick }}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <ReferenceLine
+                            y={avgAttention}
+                            stroke={chart.reference}
+                            strokeDasharray="4 4"
+                          />
+                          <Tooltip
+                            content={<AttentionTooltip />}
+                            cursor={{ stroke: chart.cursor, strokeWidth: 1 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="attention"
+                            stroke={chart.line}
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{
+                              r: 5,
+                              fill: chart.line,
+                              stroke: chart.dotRing,
+                              strokeWidth: 2,
+                            }}
+                            isAnimationActive={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </section>
+
+                {/* Bottom row: roster table */}
+                <section className={`${cardClass} mt-6 overflow-hidden`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                    <h2 className="text-base font-semibold text-slate-900">
+                      Attendance Roster
+                    </h2>
+                    <div
+                      role="group"
+                      aria-label="Filter by status"
+                      className="inline-flex overflow-hidden rounded-md border border-slate-300 bg-white text-sm shadow-xs"
+                    >
+                      {["All", "Present", "Late", "Absent"].map((f) => (
+                        <button
+                          key={f}
+                          type="button"
+                          onClick={() => setFilter(f)}
+                          aria-pressed={filter === f}
+                          className={`border-l border-slate-300 px-3 py-1.5 transition-colors first:border-l-0 ${
+                            filter === f
+                              ? "bg-red-50 font-semibold text-red-800"
+                              : "font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                          }`}
+                        >
+                          {f}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="max-h-[28rem] overflow-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="sticky top-0 bg-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
+                        <tr>
+                          <th className="border-b border-slate-200 px-5 py-3">
+                            Student Name
+                          </th>
+                          <th className="border-b border-slate-200 px-5 py-3">
+                            Status
+                          </th>
+                          <th className="border-b border-slate-200 px-5 py-3">
+                            Arrival Time
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {visibleRoster.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={3}
+                              className="px-5 py-10 text-center text-slate-500"
+                            >
+                              {loading
+                                ? "Loading roster…"
+                                : roster.length === 0
+                                  ? "No students enrolled in this class yet. Add them under Student Roster."
+                                  : "No students to show"}
+                            </td>
+                          </tr>
+                        )}
+                        {visibleRoster.map((s) => (
+                          <tr key={s.id} className="hover:bg-slate-50">
+                            <td className="whitespace-nowrap px-5 py-3">
+                              <p className="font-medium text-slate-900">
+                                {s.name}
+                              </p>
+                              <p className="text-xs text-slate-500 tabular-nums">
+                                {s.lastSeen
+                                  ? `Last seen ${s.lastSeen}`
+                                  : "Not detected this session"}
+                                {!s.enrolled && " · not enrolled"}
+                              </p>
+                            </td>
+                            <td className="whitespace-nowrap px-5 py-3">
+                              <StatusBadge status={s.status} />
+                            </td>
+                            <td className="whitespace-nowrap px-5 py-3 tabular-nums text-slate-700">
+                              {s.arrival ?? (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+        </main>
+      </div>
     );
   }
 
-  if (view === "proctor") {
-    return <ExamProctorDashboard actions={headerActions} />;
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-gray-900 font-sans transition-colors duration-200 text-slate-900 dark:text-white">
-      <Sidebar
-        classes={classes}
-        classesStatus={classesFeed.status}
-        selectedClass={classId}
-        onSelect={setSelectedClass}
-        onExport={handleExport}
-        now={now}
-      />
-
-      <main className="md:pl-64">
-        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <div className="mb-6 flex justify-end">{headerActions}</div>
-
-          <MobileClassPicker
-            classes={classes}
-            classesStatus={classesFeed.status}
-            selectedClass={classId}
-            onSelect={setSelectedClass}
-            onExport={handleExport}
-            now={now}
-          />
-
-          {!classInfo ? (
-            <NoClassSelected
-              classesStatus={classesFeed.status}
-              error={classesFeed.error}
-              onOpenAdmin={() => setView("admin")}
-            />
-          ) : (
-            <>
-              {/* Header */}
-              <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
-                    {classInfo.id}
-                  </p>
-                  <h1 className="text-2xl font-semibold tracking-tight">
-                    {classInfo.name}
-                  </h1>
-                  <p
-                    className="mt-1 text-sm text-slate-500 dark:text-gray-400"
-                    title={classInfo.lastActive?.toLocaleString()}
-                  >
-                    {classMeta}
-                  </p>
-                </div>
-                {isActive(classInfo, now) && (
-                  <span className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-gray-800 px-3 py-1 text-xs font-medium text-slate-700 dark:text-gray-300 ring-1 ring-slate-200 dark:ring-gray-700">
-                    <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-                    </span>
-                    Live session
-                  </span>
-                )}
-              </header>
-
-              {/* Top row: metrics */}
-              <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <StatCard
-                  label="Total Present"
-                  footnote={`${roster.length - presentCount} absent · ${lateCount} late`}
-                >
-                  <p className="text-3xl font-semibold">
-                    {presentCount}
-                    <span className="text-lg font-normal text-slate-400 dark:text-gray-500">
-                      /{roster.length}
-                    </span>
-                  </p>
-                  <div className="mt-3 h-1.5 w-full rounded-full bg-slate-100 dark:bg-gray-700">
-                    <div
-                      className="h-1.5 rounded-full bg-indigo-600"
-                      style={{
-                        width: `${roster.length ? (presentCount / roster.length) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                </StatCard>
-
-                <StatCard
-                  label="Average Class Attention"
-                  footnote="Mean across session so far"
-                >
-                  <p className="text-3xl font-semibold">{avgAttention}%</p>
-                  <div className="mt-3 h-1.5 w-full rounded-full bg-slate-100 dark:bg-gray-700">
-                    <div
-                      className="h-1.5 rounded-full bg-indigo-600"
-                      style={{ width: `${avgAttention}%` }}
-                    />
-                  </div>
-                </StatCard>
-
-                <StatCard
-                  label="System Status"
-                  footnote={
-                    error
-                      ? (error.code ?? "Listener error")
-                      : `Firestore live · last log ${lastSync ?? "—"}`
-                  }
-                >
-                  {error ? (
-                    <p className="flex items-center gap-2 text-lg font-semibold text-red-600 dark:text-red-400">
-                      <svg
-                        className="h-5 w-5"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                        aria-hidden="true"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                      Connection Lost
-                    </p>
-                  ) : (
-                    <p className="flex items-center gap-2 text-lg font-semibold text-emerald-700 dark:text-emerald-400">
-                      <svg
-                        className="h-5 w-5"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                        aria-hidden="true"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                      Pose Analytics Active
-                    </p>
-                  )}
-                  <p className="mt-2 text-sm text-slate-500 dark:text-gray-400">
-                    {loading ? "Connecting…" : `${logs.length} logs received`}
-                  </p>
-                </StatCard>
-              </section>
-
-              {/* Middle row: attention chart */}
-              <section className="mt-6 rounded-xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm">
-                <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-                  <div>
-                    <h2 className="text-base font-semibold">Attention Score</h2>
-                    <p className="text-sm text-slate-500 dark:text-gray-400">
-                      Class-wide engagement, averaged per minute
-                    </p>
-                  </div>
-                  <p className="text-xs text-slate-400 dark:text-gray-500">
-                    Dashed line = session average
-                  </p>
-                </div>
-                <div className="h-72 w-full">
-                  {attention.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-sm text-slate-400 dark:text-gray-500">
-                      {loading
-                        ? "Loading attention data…"
-                        : "No attention data yet"}
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={attention}
-                        margin={{ top: 8, right: 16, bottom: 0, left: -8 }}
-                      >
-                        <CartesianGrid stroke={chart.grid} vertical={false} />
-                        <XAxis
-                          dataKey="time"
-                          tick={{ fontSize: 12, fill: chart.tick }}
-                          tickLine={false}
-                          axisLine={{ stroke: chart.axis }}
-                          interval="preserveStartEnd"
-                          minTickGap={24}
-                        />
-                        <YAxis
-                          domain={[0, 100]}
-                          ticks={[0, 25, 50, 75, 100]}
-                          tick={{ fontSize: 12, fill: chart.tick }}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <ReferenceLine
-                          y={avgAttention}
-                          stroke={chart.reference}
-                          strokeDasharray="4 4"
-                        />
-                        <Tooltip
-                          content={<AttentionTooltip />}
-                          cursor={{ stroke: chart.cursor, strokeWidth: 1 }}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="attention"
-                          stroke={chart.line}
-                          strokeWidth={2}
-                          dot={false}
-                          activeDot={{
-                            r: 5,
-                            stroke: chart.dotRing,
-                            strokeWidth: 2,
-                          }}
-                          isAnimationActive={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </section>
-
-              {/* Bottom row: roster table */}
-              <section className="mt-6 rounded-xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-gray-700 px-5 py-4">
-                  <h2 className="text-base font-semibold">Attendance Roster</h2>
-                  <div className="inline-flex rounded-lg bg-slate-100 dark:bg-gray-700 p-1 text-sm">
-                    {["All", "Present", "Late", "Absent"].map((f) => (
-                      <button
-                        key={f}
-                        onClick={() => setFilter(f)}
-                        className={`rounded-md px-3 py-1 font-medium transition-colors ${
-                          filter === f
-                            ? "bg-white dark:bg-gray-800 text-slate-900 dark:text-white shadow-sm"
-                            : "text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200"
-                        }`}
-                      >
-                        {f}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="max-h-[28rem] overflow-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="sticky top-0 bg-slate-50 dark:bg-gray-900 text-left text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400">
-                      <tr>
-                        <th className="px-5 py-3">Student Name</th>
-                        <th className="px-5 py-3">Status</th>
-                        <th className="px-5 py-3">Arrival Time</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-gray-700/60">
-                      {visibleRoster.length === 0 && (
-                        <tr>
-                          <td
-                            colSpan={3}
-                            className="px-5 py-10 text-center text-slate-400 dark:text-gray-500"
-                          >
-                            {loading
-                              ? "Loading roster…"
-                              : roster.length === 0
-                                ? "No students enrolled in this class yet. Add them in the Admin Panel."
-                                : "No students to show"}
-                          </td>
-                        </tr>
-                      )}
-                      {visibleRoster.map((s) => (
-                        <tr
-                          key={s.id}
-                          className="hover:bg-slate-50 dark:hover:bg-gray-700/50"
-                        >
-                          <td className="whitespace-nowrap px-5 py-3">
-                            <p className="font-medium text-slate-900 dark:text-white">
-                              {s.name}
-                            </p>
-                            <p className="text-xs text-slate-400 dark:text-gray-500">
-                              {s.lastSeen
-                                ? `Last seen ${s.lastSeen}`
-                                : "Not detected this session"}
-                              {!s.enrolled && " · not enrolled"}
-                            </p>
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-3">
-                            <StatusBadge status={s.status} />
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-3 tabular-nums text-slate-700 dark:text-gray-300">
-                            {s.arrival ?? (
-                              <span className="text-slate-300 dark:text-gray-600">
-                                —
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </>
-          )}
-        </div>
-      </main>
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      <PortalHeader view={view} onChange={setView} now={now} />
+      {page}
     </div>
   );
 }

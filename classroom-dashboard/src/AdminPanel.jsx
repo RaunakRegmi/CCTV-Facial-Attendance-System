@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "./firebase";
+import { PageHeading } from "./ui";
+import { btnPrimary, cardClass, inputClass, labelClass } from "./styles";
 
 // ---------------------------------------------------------------------------
 // Config & helpers
@@ -102,18 +104,17 @@ function formatKb(chars) {
 // Small presentational components
 // ---------------------------------------------------------------------------
 
-function Card({ title, description, children }) {
+// White panel with a titled header bar; `flush` drops body padding for tables
+function Card({ title, description, flush = false, children }) {
   return (
-    <section className="rounded-xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-        {title}
-      </h2>
-      {description && (
-        <p className="mt-1 text-sm text-slate-500 dark:text-gray-400">
-          {description}
-        </p>
-      )}
-      <div className="mt-5">{children}</div>
+    <section className={`${cardClass} overflow-hidden`}>
+      <div className="border-b border-slate-200 px-5 py-4">
+        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+        {description && (
+          <p className="mt-0.5 text-sm text-slate-600">{description}</p>
+        )}
+      </div>
+      <div className={flush ? "" : "p-5"}>{children}</div>
     </section>
   );
 }
@@ -121,21 +122,14 @@ function Card({ title, description, children }) {
 function Field({ label, hint, children }) {
   return (
     <label className="block">
-      <span className="text-sm font-medium text-slate-700 dark:text-gray-300">
-        {label}
-      </span>
+      <span className="text-sm font-medium text-slate-700">{label}</span>
       <div className="mt-1.5">{children}</div>
       {hint && (
-        <span className="mt-1 block text-xs text-slate-400 dark:text-gray-500">
-          {hint}
-        </span>
+        <span className="mt-1 block text-xs text-slate-500">{hint}</span>
       )}
     </label>
   );
 }
-
-const inputClass =
-  "w-full rounded-lg border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900 px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50";
 
 function Spinner() {
   return (
@@ -168,7 +162,7 @@ function SubmitButton({ busy, busyLabel, disabled, children }) {
     <button
       type="submit"
       disabled={busy || disabled}
-      className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-70"
+      className={btnPrimary}
     >
       {busy && <Spinner />}
       {busy ? busyLabel : children}
@@ -197,10 +191,13 @@ function StatusMessage({ status }) {
   if (!status) return null;
   const tone =
     status.type === "error"
-      ? "border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300"
-      : "border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      ? "border-red-200 bg-red-50 text-red-800"
+      : "border-emerald-200 bg-emerald-50 text-emerald-800";
   return (
-    <p role="status" className={`rounded-lg border px-3 py-2 text-sm ${tone}`}>
+    <p
+      role="status"
+      className={`rounded-md border px-3 py-2 text-sm font-medium ${tone}`}
+    >
       {status.text}
     </p>
   );
@@ -257,7 +254,10 @@ function AddClassForm({ classes }) {
   };
 
   return (
-    <Card title="Add Class">
+    <Card
+      title="Add Class"
+      description="Register a class so the engine and roster can reference it."
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Class ID" hint="Must match the engine's --class-id">
@@ -297,32 +297,34 @@ function AddClassForm({ classes }) {
       </form>
 
       {classes.length > 0 && (
-        <div className="mt-6 border-t border-slate-200 dark:border-gray-700 pt-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-gray-500">
+        <div className="mt-6 overflow-hidden rounded-md border border-slate-200">
+          <p className={`${labelClass} border-b border-slate-200 bg-white px-4 py-2.5`}>
             Existing classes ({classes.length})
           </p>
-          <ul className="mt-2 divide-y divide-slate-100 dark:divide-gray-700/60">
-            {classes.map((c) => (
-              <li
-                key={c.id}
-                className="flex items-baseline justify-between gap-3 py-2 text-sm"
-              >
-                <span className="truncate">
-                  <span className="font-medium text-slate-900 dark:text-white">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
+              <tr>
+                <th className="border-b border-slate-200 px-4 py-2.5">
+                  Class ID
+                </th>
+                <th className="border-b border-slate-200 px-4 py-2.5">Name</th>
+                <th className="border-b border-slate-200 px-4 py-2.5">Room</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {classes.map((c) => (
+                <tr key={c.id} className="hover:bg-slate-50">
+                  <td className="whitespace-nowrap px-4 py-2.5 font-semibold text-slate-900">
                     {c.id}
-                  </span>
-                  <span className="ml-2 text-slate-500 dark:text-gray-400">
-                    {c.name}
-                  </span>
-                </span>
-                {c.room && (
-                  <span className="shrink-0 text-xs text-slate-400 dark:text-gray-500">
-                    {c.room}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-700">{c.name}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">
+                    {c.room ?? <span className="text-slate-400">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </Card>
@@ -433,7 +435,10 @@ function AddStudentForm({ classes }) {
   }[phase];
 
   return (
-    <Card title="Add Student" description="">
+    <Card
+      title="Add Student"
+      description="Enroll a student with a reference photo for face recognition."
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Full name" hint="Shown on the dashboard roster">
@@ -459,11 +464,11 @@ function AddStudentForm({ classes }) {
         </div>
 
         <fieldset disabled={busy}>
-          <legend className="text-sm font-medium text-slate-700 dark:text-gray-300">
+          <legend className="text-sm font-medium text-slate-700">
             Enrolled classes
           </legend>
           {classes.length === 0 ? (
-            <p className="mt-1.5 text-sm text-slate-400 dark:text-gray-500">
+            <p className="mt-1.5 text-sm text-slate-500">
               Create a class first.
             </p>
           ) : (
@@ -477,10 +482,10 @@ function AddStudentForm({ classes }) {
                     onClick={() => toggleClass(c.id)}
                     aria-pressed={on}
                     title={c.name}
-                    className={`rounded-full border px-3 py-1 text-sm font-medium transition-colors disabled:opacity-50 ${
+                    className={`rounded-md border px-3 py-1 text-sm transition-colors disabled:opacity-50 ${
                       on
-                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-200"
-                        : "border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900 text-slate-500 dark:text-gray-400 hover:border-slate-400 dark:hover:border-gray-500 hover:text-slate-700 dark:hover:text-gray-200"
+                        ? "border-red-700 bg-red-50 font-semibold text-red-800"
+                        : "border-slate-300 bg-white font-medium text-slate-600 hover:border-slate-400 hover:text-slate-900"
                     }`}
                   >
                     {on && "✓ "}
@@ -501,7 +506,7 @@ function AddStudentForm({ classes }) {
           }
         >
           <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-300 bg-slate-50">
               {photo ? (
                 <img
                   src={photo.dataUrl}
@@ -509,9 +514,7 @@ function AddStudentForm({ classes }) {
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="text-xs text-slate-300 dark:text-gray-600">
-                  No photo
-                </span>
+                <span className="text-xs text-slate-400">No photo</span>
               )}
             </div>
             <input
@@ -520,7 +523,7 @@ function AddStudentForm({ classes }) {
               accept="image/jpeg,image/png,image/webp"
               onChange={handleFile}
               disabled={busy}
-              className="block w-full text-sm text-slate-500 dark:text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 dark:file:bg-gray-700 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-900 dark:file:text-white hover:file:bg-slate-300 dark:hover:file:bg-gray-600 disabled:opacity-50"
+              className="block w-full text-sm text-slate-600 file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-solid file:border-slate-300 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-50 disabled:opacity-50"
             />
           </div>
         </Field>
@@ -598,74 +601,101 @@ function StudentList() {
   return (
     <Card
       title={`Enrolled Students${feed.status === "ready" ? ` (${feed.students.length})` : ""}`}
+      description="Reference photos used by the recognition engine."
+      flush
     >
       {deleteStatus && (
-        <div className="mb-3">
+        <div className="border-b border-slate-200 p-4">
           <StatusMessage status={deleteStatus} />
         </div>
       )}
       {feed.status === "loading" && (
-        <p className="text-sm text-slate-400 dark:text-gray-500">
+        <p className="px-5 py-8 text-center text-sm text-slate-500">
           Loading students…
         </p>
       )}
       {feed.status === "error" && (
-        <p className="text-sm text-red-700 dark:text-red-300">
+        <p className="px-5 py-8 text-center text-sm font-medium text-red-700">
           Couldn't load students: {feed.error?.code ?? "error"}
         </p>
       )}
       {feed.status === "ready" && feed.students.length === 0 && (
-        <p className="text-sm text-slate-400 dark:text-gray-500">
+        <p className="px-5 py-8 text-center text-sm text-slate-500">
           No students enrolled yet.
         </p>
       )}
       {feed.students.length > 0 && (
-        <ul className="divide-y divide-slate-100 dark:divide-gray-700/60">
-          {feed.students.map((s) => (
-            <li key={s.id} className="flex items-center gap-3 py-3">
-              {s.photo_base64 ? (
-                <img
-                  src={s.photo_base64}
-                  alt=""
-                  className="h-10 w-10 shrink-0 rounded-full border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900 object-cover"
-                />
-              ) : (
-                <div className="h-10 w-10 shrink-0 rounded-full border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
-                  {s.full_name}
-                </p>
-                <p className="text-xs text-slate-400 dark:text-gray-500">
-                  {s.student_id}
-                </p>
-              </div>
-              <div className="flex flex-wrap justify-end gap-1">
-                {(s.enrolled_classes ?? []).map((c) => (
-                  <span
-                    key={c}
-                    className="rounded-full bg-slate-100 dark:bg-gray-700 px-2 py-0.5 text-xs text-slate-700 dark:text-gray-300"
-                  >
-                    {c}
-                  </span>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => handleDelete(s)}
-                disabled={deleting.has(s.id)}
-                aria-label={`Delete ${s.full_name || s.id}`}
-                title="Delete student"
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-2.5 py-1.5 text-xs font-medium text-red-700 dark:text-red-300 transition-colors hover:border-red-300 dark:hover:border-red-500/60 hover:bg-red-100 dark:hover:bg-red-500/20 hover:text-red-800 dark:hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {deleting.has(s.id) ? <Spinner /> : <TrashIcon />}
-                <span className="hidden sm:inline">
-                  {deleting.has(s.id) ? "Deleting…" : "Delete"}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="max-h-[32rem] overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead className="sticky top-0 bg-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
+              <tr>
+                <th className="border-b border-slate-200 px-5 py-3">
+                  Student
+                </th>
+                <th className="border-b border-slate-200 px-5 py-3">
+                  Classes
+                </th>
+                <th className="border-b border-slate-200 px-5 py-3 text-right">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {feed.students.map((s) => (
+                <tr key={s.id} className="hover:bg-slate-50">
+                  <td className="px-5 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      {s.photo_base64 ? (
+                        <img
+                          src={s.photo_base64}
+                          alt=""
+                          className="h-10 w-10 shrink-0 rounded-md border border-slate-200 bg-slate-50 object-cover"
+                        />
+                      ) : (
+                        <div className="h-10 w-10 shrink-0 rounded-md border border-slate-200 bg-slate-50" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-slate-900">
+                          {s.full_name}
+                        </p>
+                        <p className="text-xs text-slate-500 tabular-nums">
+                          {s.student_id}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      {(s.enrolled_classes ?? []).map((c) => (
+                        <span
+                          key={c}
+                          className="rounded border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
+                        >
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(s)}
+                      disabled={deleting.has(s.id)}
+                      aria-label={`Delete ${s.full_name || s.id}`}
+                      title="Delete student"
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {deleting.has(s.id) ? <Spinner /> : <TrashIcon />}
+                      <span className="hidden sm:inline">
+                        {deleting.has(s.id) ? "Deleting…" : "Delete"}
+                      </span>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Card>
   );
@@ -675,41 +705,33 @@ function StudentList() {
 // Panel
 // ---------------------------------------------------------------------------
 
-export default function AdminPanel({ classes, classesStatus, actions }) {
+export default function AdminPanel({ classes, classesStatus }) {
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-gray-900 font-sans transition-colors duration-200 text-slate-900 dark:text-white">
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
-              Attendly
-            </p>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Admin Panel
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-gray-400">
-              Create classes and enroll students with their reference photos.
-            </p>
-          </div>
-          {actions}
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <PageHeading
+        eyebrow="Student Roster"
+        title="Classes & Student Enrollment"
+        description="Create classes and enroll students with their reference photos."
+      />
+
+      {classesStatus === "error" && (
+        <p
+          role="alert"
+          className="mb-6 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-800"
+        >
+          Couldn't load classes. Check your Firestore security rules.
+        </p>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-6">
+          <AddClassForm classes={classes} />
         </div>
-
-        {classesStatus === "error" && (
-          <p className="mb-6 rounded-lg border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
-            Couldn't load classes. Check your Firestore security rules.
-          </p>
-        )}
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="space-y-6">
-            <AddClassForm classes={classes} />
-          </div>
-          <div className="space-y-6">
-            <AddStudentForm classes={classes} />
-            <StudentList />
-          </div>
+        <div className="space-y-6">
+          <AddStudentForm classes={classes} />
+          <StudentList />
         </div>
       </div>
-    </div>
+    </main>
   );
 }
